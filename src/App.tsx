@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 
+// Resolves files in public/assets against Vite's base URL, so images load both
+// at the site root (Figma Make, local dev) and under a subpath (GitHub Pages).
+const asset = (file: string) => `${import.meta.env.BASE_URL}assets/${file}`
+
 const galleryItems = {
   "2D": [1, 2, 3, 4, 5, 6],
   "3D": [1, 2, 3, 4, 5, 6],
@@ -47,13 +51,15 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!selectedArtwork) return
+    if (!selectedArtwork && !selectedWorld) return
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedArtwork(null)
+      if (event.key !== "Escape") return
+      if (selectedArtwork) setSelectedArtwork(null)
+      else closeWorld()
     }
     window.addEventListener("keydown", closeOnEscape)
     return () => window.removeEventListener("keydown", closeOnEscape)
-  }, [selectedArtwork])
+  }, [selectedArtwork, selectedWorld])
 
   const scrollTo = (target: "gallery" | "vr") => {
     const ref = target === "gallery" ? galleryRef : vrRef
@@ -91,13 +97,13 @@ export default function App() {
         </div>
 
         <div className="hero-mark" aria-hidden="true">
-          <img src="/assets/tomato-mark.png" alt="" />
+          <img src={asset("tomato-mark.png")} alt="" />
         </div>
 
         <div className="goose-hop" aria-hidden="true">
-          <img src="/assets/goose-plain.png" alt="" />
-          <img src="/assets/goose-plain.png" alt="" />
-          <img src="/assets/goose-plain.png" alt="" />
+          <img src={asset("goose-plain.png")} alt="" />
+          <img src={asset("goose-plain.png")} alt="" />
+          <img src={asset("goose-plain.png")} alt="" />
         </div>
       </section>
 
@@ -108,7 +114,7 @@ export default function App() {
       >
         <header className="section-header">
           <div className="mini-brand">
-            <img src="/assets/tomato-mark.png" alt="" />
+            <img src={asset("tomato-mark.png")} alt="" />
             <span>Stephanie Yang</span>
           </div>
         </header>
@@ -162,7 +168,7 @@ export default function App() {
               aria-label="2D"
               aria-pressed={activeGallery === "2D"}
             >
-              <img src="/assets/goose-2d.png" alt="" />
+              <img src={asset("goose-2d.png")} alt="" />
             </button>
             <button
               className={activeGallery === "3D" ? "active" : ""}
@@ -170,10 +176,10 @@ export default function App() {
               aria-label="3D"
               aria-pressed={activeGallery === "3D"}
             >
-              <img src="/assets/goose-3d.png" alt="" />
+              <img src={asset("goose-3d.png")} alt="" />
             </button>
             <button onClick={() => scrollTo("vr")} aria-label="VR">
-              <img src="/assets/goose-vr.png" alt="" />
+              <img src={asset("goose-vr.png")} alt="" />
             </button>
           </aside>
         </div>
@@ -188,7 +194,7 @@ export default function App() {
         <div className="vr-glow glow-two" />
         <header className="vr-header">
           <div className="mini-brand vr-brand">
-            <img src="/assets/tomato-mark.png" alt="" />
+            <img src={asset("tomato-mark.png")} alt="" />
             <h2 id="vr-heading">Stephanie Yang</h2>
           </div>
         </header>
@@ -210,11 +216,11 @@ export default function App() {
               </span>
             </button>
           ))}
-        </div>
 
-        <div className="vr-invite">
-          <img src="/assets/goose-vr.png" alt="" />
-          <p>Travel Inside!</p>
+          <div className="vr-invite">
+            <img src={asset("goose-vr.png")} alt="" />
+            <p>Travel Inside!</p>
+          </div>
         </div>
       </section>
 

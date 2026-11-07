@@ -710,7 +710,8 @@ em {
   width: 100%;
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-columns: .9fr 1.1fr;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1.25fr) minmax(0, 1fr);
   gap: clamp(1.75rem, 2.5vw, 2.75rem);
   max-width: none;
   margin-left: 0;
@@ -728,8 +729,23 @@ em {
   transition: transform .4s cubic-bezier(.2,.8,.2,1), box-shadow .4s ease;
 }
 
+/* Matches vr.png: small card top-left, tall card top-right, wide card
+   bottom-right, leaving the bottom-left corner for the "Travel Inside!" goose. */
+.vr-card:nth-child(1) {
+  grid-column: 2 / 7;
+  grid-row: 1;
+  align-self: end;
+  height: 75%;
+}
+
 .vr-card:nth-child(2) {
-  grid-row: span 2;
+  grid-column: 7 / 13;
+  grid-row: 1;
+}
+
+.vr-card:nth-child(3) {
+  grid-column: 6 / 13;
+  grid-row: 2;
 }
 
 .vr-card:hover {
@@ -744,14 +760,10 @@ em {
 .vr-art {
   display: block;
   position: relative;
-  min-height: 240px;
+  min-height: 0;
   height: 100%;
   overflow: hidden;
   background: #dbe0f5;
-}
-
-.vr-card:nth-child(2) .vr-art {
-  min-height: 500px;
 }
 
 .shape {
@@ -855,17 +867,19 @@ em {
 
 .vr-invite {
   display: flex;
-  position: absolute;
+  position: relative;
   z-index: 3;
-  bottom: 3rem;
-  left: max(2rem, calc((100vw - 1440px) / 2));
+  grid-column: 1 / 6;
+  grid-row: 2;
+  align-self: end;
+  justify-self: start;
   align-items: center;
   gap: .2rem;
   transform: rotate(-6deg);
 }
 
 .vr-invite img {
-  width: 130px;
+  width: clamp(90px, 9vw, 130px);
 }
 
 .vr-invite p {
@@ -1155,6 +1169,17 @@ em {
 
   .vr-invite {
     display: none;
+  }
+
+  /* Goose is hidden here, so let the cards use the full width. */
+  .vr-card:nth-child(1) {
+    grid-column: 1 / 7;
+    align-self: stretch;
+    height: auto;
+  }
+
+  .vr-card:nth-child(3) {
+    grid-column: 1 / 13;
   }
 }
 
@@ -1495,7 +1520,9 @@ em {
 .gallery-main .art-window {
   display: flex;
   align-items: center;
-  min-height: calc(100svh - 9rem);
+  /* 100svh minus section padding (6rem) and the brand header (~5.5rem),
+     so the whole gallery slide fits in one screen. */
+  min-height: calc(100svh - 11.5rem);
 }
 
 .goose-menu button {

@@ -1,0 +1,11 @@
+{
+  "title": "Stephanie Yang – Creative Portfolio",
+  "description": "Creative art portfolio showcasing 2D, 3D, and VR artworks with immersive navigation and interactive VR experiences for exploring digital art in a 3D environment.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
