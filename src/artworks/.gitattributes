@@ -1,0 +1,14 @@
+# Store artwork as regular files, not Git LFS, so they work in every clone
+# (including ones without git-lfs installed) and in GitHub web uploads.
+*.png -filter -diff -merge -text
+*.PNG -filter -diff -merge -text
+*.jpg -filter -diff -merge -text
+*.JPG -filter -diff -merge -text
+*.jpeg -filter -diff -merge -text
+*.JPEG -filter -diff -merge -text
+*.webp -filter -diff -merge -text
+*.WEBP -filter -diff -merge -text
+*.avif -filter -diff -merge -text
+*.AVIF -filter -diff -merge -text
+*.gif -filter -diff -merge -text
+*.GIF -filter -diff -merge -text

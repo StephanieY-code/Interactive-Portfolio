@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "art:publish": "sh scripts/publish-art.sh"
   },
   "dependencies": {
     "react": "^19.0.0",
