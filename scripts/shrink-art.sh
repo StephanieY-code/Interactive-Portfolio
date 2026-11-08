@@ -1,7 +1,8 @@
 #!/bin/sh
 # Makes big artwork images website-sized so the portfolio loads fast.
 #
-# For every PNG or JPG in src/artworks/2d and src/artworks/3d:
+# For every PNG or JPG in src/artworks/2d and src/artworks/3d (and each VR
+# card cover in src/vr-worlds):
 #   - longer than 2400 px on a side -> scaled down to 2400 px (shape kept)
 #   - still over 3 MB after that    -> saved as a JPG instead, but only if the
 #                                      image has no transparency
@@ -32,7 +33,10 @@ image_prop() { sips -g "$1" "$2" 2>/dev/null | awk -v key="$1:" '$1 == key { pri
 
 # Copies the original into artwork-originals/, never overwriting an earlier copy.
 save_original() {
-  destination="$ORIGINALS_DIR/${1#src/artworks/}"
+  case "$1" in
+    src/vr-worlds/*) destination="$ORIGINALS_DIR/vr-worlds/${1#src/vr-worlds/}" ;;
+    *) destination="$ORIGINALS_DIR/${1#src/artworks/}" ;;
+  esac
   mkdir -p "$(dirname "$destination")"
   if [ -e "$destination" ]; then
     destination="${destination%.*}-$(date +%Y%m%d-%H%M%S).${destination##*.}"
@@ -43,8 +47,13 @@ save_original() {
 list=$(mktemp)
 scratch=$(mktemp -d) # resized copies are made here, outside the project
 trap 'rm -rf "$list" "$scratch"' EXIT
-find src/artworks/2d src/artworks/3d -type f \
-  \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) | sort > "$list"
+{
+  find src/artworks/2d src/artworks/3d -type f \
+    \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \)
+  # VR card covers (the 3D scenes are sized by the Blender exporter instead).
+  [ -d src/vr-worlds ] && find src/vr-worlds -type f \
+    \( -iname 'cover.png' -o -iname 'cover.jpg' -o -iname 'cover.jpeg' \)
+} | sort > "$list"
 
 shrunk=0
 while IFS= read -r file; do
@@ -104,7 +113,8 @@ while IFS= read -r file; do
   mv "$work" "$target"
   shrunk=$((shrunk + 1))
 
-  echo "  ${target#src/artworks/}: ${width}×${height}, $(megabytes "$bytes")" \
+  shown=${target#src/artworks/}
+  echo "  ${shown#src/}: ${width}×${height}, $(megabytes "$bytes")" \
     "→ $(image_prop pixelWidth "$target")×$(image_prop pixelHeight "$target")," \
     "$(megabytes "$new_bytes")"
   if [ "$new_bytes" -gt "$MAX_BYTES" ]; then

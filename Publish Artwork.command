@@ -1,5 +1,6 @@
 #!/bin/sh
-# Double-click me in Finder to publish the artwork in src/artworks to the live site.
+# Double-click me in Finder to publish your artwork (src/artworks) and VR worlds
+# (src/vr-worlds) to the live site.
 cd "$(dirname "$0")" || exit 1
 sh scripts/publish-art.sh
 echo ""

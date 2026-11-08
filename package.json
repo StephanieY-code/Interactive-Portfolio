@@ -9,21 +9,32 @@
     "preview": "vite preview",
     "format": "oxfmt",
     "art:publish": "sh scripts/publish-art.sh",
-    "art:shrink": "sh scripts/shrink-art.sh"
+    "art:shrink": "sh scripts/shrink-art.sh",
+    "vr:export": "sh scripts/export-vr-world.sh"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@react-three/xr": "^6.6.32",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "three": "^0.187.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^6.0.0",
-    "tailwindcss": "^4.0.0",
-    "@tailwindcss/vite": "^4.0.0",
     "oxfmt": "^0.2.0",
+    "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
     "vite": "^8.0.5"
+  },
+  "pnpm": {
+    "overrides": {
+      "three": "$three"
+    }
   }
 }

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Publishes new, changed, or deleted artwork in src/artworks to GitHub.
-# Pushing to main makes GitHub Actions rebuild the live site (about a minute).
+# Publishes new, changed, or deleted artwork (src/artworks) and VR worlds
+# (src/vr-worlds) to GitHub. Pushing to main makes GitHub Actions rebuild
+# the live site (about a minute).
 #
 # Run it by double-clicking "Publish Artwork.command" in Finder,
 # or from a terminal with: pnpm art:publish
@@ -10,6 +11,8 @@ cd "$(dirname "$0")/.."
 
 SITE_URL="https://stephaniey-code.github.io/Interactive-Portfolio/"
 ACTIONS_URL="https://github.com/StephanieY-code/Interactive-Portfolio/actions"
+CONTENT="src/artworks src/vr-worlds"
+GITHUB_FILE_LIMIT=100000000 # GitHub refuses single files over 100 MB
 
 # Use the GitHub CLI login for git, without changing any global git settings.
 git_gh() {
@@ -37,29 +40,43 @@ git_gh pull --rebase --autostash --quiet origin main \
 echo "→ Making big images website-sized..."
 sh scripts/shrink-art.sh || fail "Couldn't shrink the images. Check the message above."
 
-git add -A -- src/artworks
+# shellcheck disable=SC2086 # CONTENT is a list of folders
+git add -A -- $CONTENT
 
-if git diff --cached --quiet -- src/artworks; then
+# shellcheck disable=SC2086
+if git diff --cached --quiet -- $CONTENT; then
   echo ""
-  echo "No new artwork to publish."
-  echo "Put images in src/artworks/2d or src/artworks/3d, then run this again."
+  echo "Nothing new to publish."
+  echo "Put images in src/artworks/2d or 3d (or export a VR world), then run this again."
   exit 0
 fi
 
+# shellcheck disable=SC2086
+for file in $(git diff --cached --name-only --diff-filter=AM -- $CONTENT | tr ' ' '\001'); do
+  file=$(printf '%s' "$file" | tr '\001' ' ')
+  if [ "$(stat -f %z "$file")" -gt "$GITHUB_FILE_LIMIT" ]; then
+    git reset --quiet -- $CONTENT
+    fail "$file is over 100 MB, which GitHub doesn't allow. Make it smaller first."
+  fi
+done
+
 tab=$(printf '\t')
-changes=$(git diff --cached --name-status -- src/artworks \
-  | sed -e 's#src/artworks/##g' \
+# shellcheck disable=SC2086
+changes=$(git diff --cached --name-status -- $CONTENT \
+  | sed -e 's#src/artworks/##g' -e 's#src/vr-worlds/#VR #g' \
         -e "s/^A${tab}/  added    /" -e "s/^M${tab}/  changed  /" \
         -e "s/^D${tab}/  removed  /" -e "s/^R[0-9]*${tab}/  renamed  /" \
         -e "s/${tab}/ → /")
-count=$(git diff --cached --name-only -- src/artworks | wc -l | tr -d ' ')
+# shellcheck disable=SC2086
+count=$(git diff --cached --name-only -- $CONTENT | wc -l | tr -d ' ')
 
 echo ""
-echo "Publishing $count artwork change(s):"
+echo "Publishing $count change(s):"
 echo "$changes"
 
-if [ "$count" = "1" ]; then subject="Update artwork"; else subject="Update artworks ($count files)"; fi
-git commit --quiet -m "$subject" -m "$changes" -- src/artworks
+if [ "$count" = "1" ]; then subject="Update artwork"; else subject="Update artwork ($count files)"; fi
+# shellcheck disable=SC2086
+git commit --quiet -m "$subject" -m "$changes" -- $CONTENT
 
 echo ""
 echo "→ Pushing to GitHub..."

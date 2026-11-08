@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from "react"
+import { Suspense, lazy, useEffect, useRef, useState } from "react"
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react"
 import { artworks, type Artwork } from "./artworks"
+import { getWorld } from "./vr/worlds"
+
+// The 3D viewer (three.js + WebXR) is a separate download that only starts
+// when someone hovers or opens a VR world, so the main page stays light.
+const loadVRViewer = () => import("./vr/VRViewer")
+const VRViewer = lazy(loadVRViewer)
 
 // Resolves files in public/assets against Vite's base URL, so images load both
 // at the site root (Figma Make, local dev) and under a subpath (GitHub Pages).
@@ -15,11 +21,18 @@ const galleryItems = {
   "3D": [1, 2, 3, 4, 5, 6],
 }
 
+// Each card's world lives in src/vr-worlds/<className>/ (cover, scene, settings).
 const vrProjects = [
   { number: "01", className: "garden" },
   { number: "02", className: "clouds" },
   { number: "03", className: "moon" },
-]
+].map((project) => ({ ...project, world: getWorld(project.className) }))
+
+// Start downloading the 3D viewer and this world's model ahead of the click.
+const warmUpWorld = (project: (typeof vrProjects)[number]) => {
+  if (!project.world.model) return
+  void loadVRViewer().then((viewer) => viewer.preloadWorld(project.world))
+}
 
 type GalleryKind = keyof typeof galleryItems
 
@@ -405,13 +418,24 @@ export default function App() {
                 selectedWorld?.number === project.number ? "is-opening" : ""
               }`}
               key={project.number}
-              onClick={() => setSelectedWorld(project)}
-              aria-label="VR"
+              onClick={() => {
+                warmUpWorld(project)
+                setSelectedWorld(project)
+              }}
+              onPointerEnter={() => warmUpWorld(project)}
+              onFocus={() => warmUpWorld(project)}
+              aria-label={`Enter the ${project.world.title} world`}
             >
               <span className="vr-art" aria-hidden="true">
-                <i className="shape shape-a" />
-                <i className="shape shape-b" />
-                <i className="shape shape-c" />
+                {project.world.cover ? (
+                  <img className="vr-cover" src={project.world.cover} alt="" />
+                ) : (
+                  <>
+                    <i className="shape shape-a" />
+                    <i className="shape shape-b" />
+                    <i className="shape shape-c" />
+                  </>
+                )}
               </span>
             </button>
           ))}
@@ -464,22 +488,37 @@ export default function App() {
           className={`dream-transition ${vrMode ? "world-open" : ""}`}
           role="dialog"
           aria-modal="true"
-          aria-label="VR"
+          aria-label={`${selectedWorld.world.title} world`}
         >
           <div className="dream-cloud cloud-a" />
           <div className="dream-cloud cloud-b" />
-          <div className="immersive-world">
-            <div className="world-sky">
-              <span className="world-moon" />
-              <span className="world-star star-1" />
-              <span className="world-star star-2" />
-              <span className="world-star star-3" />
-            </div>
-            <div className="world-hill hill-back" />
-            <div className="world-hill hill-front" />
-            <div className="world-object object-one" />
-            <div className="world-object object-two" />
-            <div className="world-object object-three" />
+          <div
+            className={`immersive-world${
+              selectedWorld.world.model ? " has-model" : ""
+            }`}
+          >
+            {selectedWorld.world.model ? (
+              // The 3D world loads behind the clouds while they part.
+              <Suspense
+                fallback={<p className="vr-status">Opening the world…</p>}
+              >
+                <VRViewer world={selectedWorld.world} />
+              </Suspense>
+            ) : (
+              <>
+                <div className="world-sky">
+                  <span className="world-moon" />
+                  <span className="world-star star-1" />
+                  <span className="world-star star-2" />
+                  <span className="world-star star-3" />
+                </div>
+                <div className="world-hill hill-back" />
+                <div className="world-hill hill-front" />
+                <div className="world-object object-one" />
+                <div className="world-object object-two" />
+                <div className="world-object object-three" />
+              </>
+            )}
             <div className="world-controls">
               <button
                 className="fullscreen-button"

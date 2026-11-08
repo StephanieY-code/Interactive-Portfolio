@@ -1,0 +1,20 @@
+{
+  "title": "Garden",
+  "scale": 0.4,
+  "touchable": [
+    {
+      "name": "Plant",
+      "objects": [
+        "Cube.007",
+        "Cube.010",
+        "Cube.020",
+        "Cube.023",
+        "Cube.032",
+        "Cube.033",
+        "Cube.043",
+        "Cube.050",
+        "BézierCurve*"
+      ]
+    }
+  ]
+}
