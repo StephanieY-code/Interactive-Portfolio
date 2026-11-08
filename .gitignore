@@ -22,3 +22,6 @@ logs/
 
 # macOS Finder metadata
 .DS_Store
+
+# Full-size artwork kept by scripts/shrink-art.sh (stays on this Mac)
+artwork-originals/

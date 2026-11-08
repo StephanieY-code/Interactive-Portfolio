@@ -34,6 +34,9 @@ echo "→ Getting the latest version from GitHub..."
 git_gh pull --rebase --autostash --quiet origin main \
   || fail "Couldn't update from GitHub. Fix the message above, then try again."
 
+echo "→ Making big images website-sized..."
+sh scripts/shrink-art.sh || fail "Couldn't shrink the images. Check the message above."
+
 git add -A -- src/artworks
 
 if git diff --cached --quiet -- src/artworks; then
