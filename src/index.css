@@ -518,6 +518,51 @@ em {
   transform: scale(1.025);
 }
 
+/* Short fade-in whenever the strip switches (showcase, 2D, 3D). */
+.art-track {
+  animation: artTrackIn .5s ease both;
+}
+
+/* Showcase mode, before a 2D/3D goose is pressed: the strip glides left on
+   its own and loops forever. Hovering pauses it so a piece can be clicked. */
+.art-window.is-showcase::before,
+.art-window.is-showcase::after {
+  opacity: 1;
+}
+
+.art-window.is-showcase .art-scroller {
+  overflow-x: hidden;
+  scroll-snap-type: none;
+  cursor: default;
+}
+
+.art-window.is-showcase .art-track {
+  /* Spacing lives on each card (not gap/padding) so that sliding by exactly
+     half the strip lines the second copy up with the first. */
+  gap: 0;
+  padding-inline: 0;
+  animation:
+    artTrackIn .5s ease both,
+    marquee var(--marquee-duration, 60s) linear infinite;
+}
+
+.art-window.is-showcase .art-card {
+  margin-right: 1.5rem;
+}
+
+.art-window.is-showcase:hover .art-track,
+.art-window.is-showcase:has(:focus-visible) .art-track {
+  animation-play-state: paused;
+}
+
+@keyframes marquee {
+  to { transform: translateX(-50%); }
+}
+
+@keyframes artTrackIn {
+  from { opacity: 0; }
+}
+
 .art-open-button {
   display: block;
   position: relative;

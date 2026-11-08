@@ -3,7 +3,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react"
-import { artworks } from "./artworks"
+import { artworks, type Artwork } from "./artworks"
 
 // Resolves files in public/assets against Vite's base URL, so images load both
 // at the site root (Figma Make, local dev) and under a subpath (GitHub Pages).
@@ -23,8 +23,39 @@ const vrProjects = [
 
 type GalleryKind = keyof typeof galleryItems
 
+// One card in the gallery strip: a real artwork, or a placeholder when
+// `art` is missing.
+type GalleryEntry = { kind: GalleryKind; index: number; art?: Artwork }
+
+// A gallery's real artwork, or its placeholders while its folder is empty.
+const entriesFor = (kind: GalleryKind): GalleryEntry[] =>
+  artworks[kind].length > 0
+    ? artworks[kind].map((art, index) => ({ kind, index, art }))
+    : galleryItems[kind].map((_, index) => ({ kind, index }))
+
+// The auto-scrolling showcase (before a 2D/3D goose is picked) shows 2D then
+// 3D. Once any real artwork exists, placeholders are left out of it.
+const realArtwork: GalleryEntry[] = (["2D", "3D"] as const).flatMap((kind) =>
+  artworks[kind].map((art, index) => ({ kind, index, art })),
+)
+const showcaseEntries: GalleryEntry[] =
+  realArtwork.length > 0
+    ? realArtwork
+    : [...entriesFor("2D"), ...entriesFor("3D")]
+
+// How fast the showcase glides, in pixels per second.
+const SHOWCASE_SPEED = 40
+
 export default function App() {
   const [activeGallery, setActiveGallery] = useState<GalleryKind>("2D")
+  // "showcase" auto-scrolls; "browse" is the scroll-it-yourself strip that
+  // opens once a visitor presses the 2D or 3D goose.
+  const [galleryMode, setGalleryMode] = useState<"showcase" | "browse">(
+    "showcase",
+  )
+  // How many times the showcase list is repeated so one loop is at least as
+  // wide as the card (matters when there are only a few artworks).
+  const [showcaseRepeats, setShowcaseRepeats] = useState(1)
   const [selectedArtwork, setSelectedArtwork] = useState<{
     kind: GalleryKind
     index: number
@@ -36,6 +67,7 @@ export default function App() {
   const galleryRef = useRef<HTMLElement>(null)
   const vrRef = useRef<HTMLElement>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{
     pointerId: number
     startX: number
@@ -44,7 +76,12 @@ export default function App() {
   } | null>(null)
   const justDraggedRef = useRef(false)
 
-  const activeArt = artworks[activeGallery]
+  const isShowcase = galleryMode === "showcase"
+  // The showcase renders its list twice; sliding left by exactly one copy
+  // and starting over makes a seamless loop.
+  const stripEntries = isShowcase
+    ? Array.from({ length: showcaseRepeats * 2 }, () => showcaseEntries).flat()
+    : entriesFor(activeGallery)
   const selectedArt = selectedArtwork
     ? artworks[selectedArtwork.kind][selectedArtwork.index]
     : undefined
@@ -64,7 +101,40 @@ export default function App() {
   useEffect(() => {
     scrollerRef.current?.scrollTo({ left: 0 })
     updateEdgeFade()
-  }, [activeGallery])
+  }, [activeGallery, galleryMode])
+
+  // Showcase: size the loop to the artwork and keep the glide speed steady
+  // however many pieces there are. Re-measures as images load or the
+  // window resizes.
+  useEffect(() => {
+    if (!isShowcase) return
+    const track = trackRef.current
+    const scroller = scrollerRef.current
+    if (!track || !scroller) return
+
+    const measure = () => {
+      const loopWidth = track.scrollWidth / 2
+      if (loopWidth <= 0) return
+      const listWidth = loopWidth / showcaseRepeats
+      const repeatsNeeded = Math.min(
+        12,
+        Math.max(1, Math.ceil(scroller.clientWidth / listWidth)),
+      )
+      if (repeatsNeeded !== showcaseRepeats) {
+        setShowcaseRepeats(repeatsNeeded)
+        return
+      }
+      track.style.setProperty(
+        "--marquee-duration",
+        `${loopWidth / SHOWCASE_SPEED}s`,
+      )
+    }
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(track)
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [isShowcase, showcaseRepeats])
 
   useEffect(() => {
     window.addEventListener("resize", updateEdgeFade)
@@ -74,6 +144,7 @@ export default function App() {
   // Click-and-drag scrolling for mouse users. Touch and trackpads already
   // scroll natively.
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isShowcase) return
     if (event.pointerType !== "mouse" || event.button !== 0) return
     dragRef.current = {
       pointerId: event.pointerId,
@@ -159,6 +230,7 @@ export default function App() {
 
   const chooseGallery = (kind: GalleryKind) => {
     setActiveGallery(kind)
+    setGalleryMode("browse")
     galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
@@ -213,12 +285,12 @@ export default function App() {
         <div className="gallery-layout">
           <div className="gallery-main">
             <h2 id="gallery-heading" className="sr-only">
-              {activeGallery}
+              {isShowcase ? "All artwork" : activeGallery}
             </h2>
             <div
-              className={`art-window${edgeFade.left ? " fade-left" : ""}${
-                edgeFade.right ? " fade-right" : ""
-              }`}
+              className={`art-window${isShowcase ? " is-showcase" : ""}${
+                !isShowcase && edgeFade.left ? " fade-left" : ""
+              }${!isShowcase && edgeFade.right ? " fade-right" : ""}`}
               aria-live="polite"
             >
               <div
@@ -232,45 +304,57 @@ export default function App() {
                 onClickCapture={ignoreClickAfterDrag}
               >
                 <div
-                  className={`art-track marquee-${activeGallery.toLowerCase()}`}
+                  className="art-track"
+                  ref={trackRef}
+                  // A new key replays the fade-in when the strip switches.
+                  key={isShowcase ? "showcase" : activeGallery}
                 >
-                  {activeArt.length > 0
-                    ? activeArt.map((art, index) => (
-                        <article className="art-card artwork" key={art.src}>
-                          <button
-                            className="art-open-button"
-                            onClick={() =>
-                              setSelectedArtwork({ kind: activeGallery, index })
-                            }
-                            aria-label={`Open ${art.title}`}
-                          >
+                  {stripEntries.map((entry, position) => {
+                    const isRepeat = position >= showcaseEntries.length
+                    const hidden = isShowcase && isRepeat
+                    return (
+                      <article
+                        className={`art-card marquee-${entry.kind.toLowerCase()}${
+                          entry.art ? " artwork" : ""
+                        }`}
+                        key={`${position}-${entry.kind}-${entry.index}`}
+                        aria-hidden={hidden || undefined}
+                      >
+                        <button
+                          className="art-open-button"
+                          tabIndex={hidden ? -1 : undefined}
+                          onClick={() =>
+                            setSelectedArtwork({
+                              kind: entry.kind,
+                              index: entry.index,
+                            })
+                          }
+                          aria-label={
+                            entry.art
+                              ? `Open ${entry.art.title}`
+                              : `Open ${entry.kind} artwork ${entry.index + 1}`
+                          }
+                        >
+                          {entry.art ? (
                             <img
                               className="artwork-image"
-                              src={art.src}
-                              alt={art.title}
+                              src={entry.art.src}
+                              alt={entry.art.title}
                               draggable={false}
                               loading="lazy"
                               decoding="async"
                               onLoad={updateEdgeFade}
                             />
-                            <i className="open-corners" aria-hidden="true" />
-                          </button>
-                        </article>
-                      ))
-                    : galleryItems[activeGallery].map((item, index) => (
-                        <article className="art-card" key={item}>
-                          <button
-                            className="art-open-button"
-                            onClick={() =>
-                              setSelectedArtwork({ kind: activeGallery, index })
-                            }
-                            aria-label={`Open ${activeGallery} artwork ${index + 1}`}
-                          >
-                            <span className={`placeholder-art art-${item}`} />
-                            <i className="open-corners" aria-hidden="true" />
-                          </button>
-                        </article>
-                      ))}
+                          ) : (
+                            <span
+                              className={`placeholder-art art-${entry.index + 1}`}
+                            />
+                          )}
+                          <i className="open-corners" aria-hidden="true" />
+                        </button>
+                      </article>
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -278,18 +362,18 @@ export default function App() {
 
           <aside className="goose-menu">
             <button
-              className={activeGallery === "2D" ? "active" : ""}
+              className={!isShowcase && activeGallery === "2D" ? "active" : ""}
               onClick={() => chooseGallery("2D")}
               aria-label="2D"
-              aria-pressed={activeGallery === "2D"}
+              aria-pressed={!isShowcase && activeGallery === "2D"}
             >
               <img src={asset("goose-2d.png")} alt="" />
             </button>
             <button
-              className={activeGallery === "3D" ? "active" : ""}
+              className={!isShowcase && activeGallery === "3D" ? "active" : ""}
               onClick={() => chooseGallery("3D")}
               aria-label="3D"
-              aria-pressed={activeGallery === "3D"}
+              aria-pressed={!isShowcase && activeGallery === "3D"}
             >
               <img src={asset("goose-3d.png")} alt="" />
             </button>
