@@ -37,6 +37,9 @@ echo "→ Getting the latest version from GitHub..."
 git_gh pull --rebase --autostash --quiet origin main \
   || fail "Couldn't update from GitHub. Fix the message above, then try again."
 
+echo "→ Checking artwork-originals/3d for new or changed Blender files..."
+sh scripts/turntables.sh || fail "Couldn't make the 3D spins. Check the message above."
+
 echo "→ Making big images website-sized..."
 sh scripts/shrink-art.sh || fail "Couldn't shrink the images. Check the message above."
 

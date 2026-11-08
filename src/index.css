@@ -512,6 +512,12 @@ em {
     filter .45s ease;
 }
 
+/* Turntable videos are square; this keeps the card from jumping in size
+   while the video loads (a video's real shape is used once it's known). */
+.is-video {
+  aspect-ratio: auto 1 / 1;
+}
+
 .art-open-button:hover .artwork-image,
 .art-open-button:focus-visible .artwork-image {
   filter: brightness(1.04) saturate(1.08);

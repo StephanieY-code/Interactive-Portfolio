@@ -23,6 +23,10 @@ Then open http://localhost:8443.
    and pushes just the artwork.
 3. The live site updates in about a minute.
 
+**3D models:** put a `.blend` file in `artwork-originals/3d/` and publish.
+Blender renders a looping 360° spin of it (a small video, like a GIF) into
+the 3D gallery. It only re-renders when the `.blend` is new or changed.
+
 You can also upload straight on github.com: open `src/artworks/2d` (or `3d`),
 choose **Add file → Upload files**, then **Commit changes**. Those uploads
 aren't shrunk, so resize big images first.

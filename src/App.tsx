@@ -4,6 +4,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react"
 import { artworks, type Artwork } from "./artworks"
+import { ArtworkMedia } from "./ArtworkMedia"
 import { getWorld } from "./vr/worlds"
 
 // The 3D viewer (three.js + WebXR) is a separate download that only starts
@@ -349,14 +350,11 @@ export default function App() {
                           }
                         >
                           {entry.art ? (
-                            <img
+                            <ArtworkMedia
+                              art={entry.art}
                               className="artwork-image"
-                              src={entry.art.src}
-                              alt={entry.art.title}
-                              draggable={false}
-                              loading="lazy"
-                              decoding="async"
-                              onLoad={updateEdgeFade}
+                              onReady={updateEdgeFade}
+                              lazy
                             />
                           ) : (
                             <span
@@ -462,11 +460,7 @@ export default function App() {
             onClick={(event) => event.stopPropagation()}
           >
             {selectedArt ? (
-              <img
-                className="lightbox-image"
-                src={selectedArt.src}
-                alt={selectedArt.title}
-              />
+              <ArtworkMedia art={selectedArt} className="lightbox-image" />
             ) : (
               <div
                 className={`placeholder-art art-${selectedArtwork.index + 1}`}
