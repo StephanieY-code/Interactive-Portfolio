@@ -11,6 +11,7 @@
     "art:publish": "sh scripts/publish-art.sh",
     "art:shrink": "sh scripts/shrink-art.sh",
     "art:spin": "sh scripts/turntables.sh",
+    "art:sync": "sh scripts/sync-2d.sh",
     "vr:export": "sh scripts/export-vr-world.sh"
   },
   "dependencies": {

@@ -1,23 +1,48 @@
 # Artworks
 
-Put images in these folders and they appear in the gallery automatically:
+This folder holds what the website's galleries show:
 
 - `2d/` → the **2D** goose
 - `3d/` → the **3D** goose
 
-Supported: `.png`, `.jpg`, `.jpeg`, `.webp`, `.avif`, `.gif`, and videos
-(`.mp4`, `.webm`), which play silently on a loop like a GIF.
+You don't put files here by hand. Put your art in **`artwork-originals/`**
+(in the project folder) and press **`Publish Artwork.command`**. It makes the
+website versions here for you:
+
+```
+artwork-originals/2d/03-Amaura.jpg     →  src/artworks/2d/03-Amaura.jpg      (website-sized)
+artwork-originals/3d/01-dragon.blend   →  src/artworks/3d/01-dragon.mp4      (spinning video)
+                                          src/artworks/3d/01-dragon.av1.mp4
+```
+
+`artwork-originals/` stays on your Mac and is never uploaded, so your
+full-size files stay private and the website stays fast.
+
+**Order and titles:** files are sorted by name, so number them:
+`01-sunset-goose.png`, `02-tomato-study.jpg`, ... The part after the number
+becomes the title ("Sunset goose"). Until a gallery has at least one piece, it
+shows placeholder art.
+
+## 2D art
+
+Put full-size images (`.jpg`, `.png`, `.webp`, `.gif`, ...) in
+**`artwork-originals/2d/`**, then publish. The 2D gallery always matches that
+folder:
+
+- **New image:** a website-sized copy is added (at most 2000 px on its longest
+  side, about 0.3 MB; it looks the same on screen).
+- **Changed or replaced image** (same file name): its copy is remade.
+- **Deleted or renamed image:** its old copy is removed from the gallery.
+- PNGs with transparency stay PNG; other PNGs become (much smaller) JPGs.
+  Animated GIFs keep their animation.
+- An image that lands in `src/artworks/2d/` some other way (dropped in
+  directly, or uploaded on github.com) is moved into `artwork-originals/2d/`
+  on the next publish, so it's kept, not removed.
 
 ## 3D models: spinning turntables from Blender
 
-Put a `.blend` file in **`artwork-originals/3d/`** (in the project folder) and
-press **`Publish Artwork.command`**. Blender makes a smooth, looping 360° spin
-of it, and the spin appears in the **3D** gallery:
-
-```
-artwork-originals/3d/01-dragon.blend  →  src/artworks/3d/01-dragon.mp4
-                                          src/artworks/3d/01-dragon.av1.mp4
-```
+Put a `.blend` file in **`artwork-originals/3d/`** and publish. Blender makes
+a smooth, looping 360° spin of it for the 3D gallery:
 
 - **It renders by itself**, in the background, with your scene's lights,
   materials, and color look. Your `.blend` is never changed.
@@ -30,33 +55,15 @@ artwork-originals/3d/01-dragon.blend  →  src/artworks/3d/01-dragon.mp4
   for everything else). Each visitor downloads only one. A 6-second spin at
   720×720 is usually around 0.25 MB, so it loads in a blink.
 - **It only re-renders when needed:** a new `.blend`, or one you saved since
-  its last spin. Otherwise publishing stays quick. Rendering takes a few
-  minutes per model.
-- **Order and title** work like images: `02-robot.blend` becomes "Robot".
-- **To remove one:** delete its two videos from `src/artworks/3d/` (and the
-  `.blend` from `artwork-originals/3d/`, or it'll be made again), then publish.
-- The `.blend` files stay on your Mac: `artwork-originals/` is never uploaded.
+  its last spin. Rendering takes a few minutes per model.
+- **To remove one:** delete its two videos from `src/artworks/3d/` and the
+  `.blend` from `artwork-originals/3d/` (or it'll be made again), then
+  publish.
 
-**Order:** files are sorted by name, so number them: `01-sunset-goose.png`,
-`02-tomato-study.jpg`, ... The part after the number becomes the title
-("Sunset goose").
+## Publishing from github.com instead
 
-**Size:** don't worry about it when publishing from your Mac. The publish
-button shrinks big PNG/JPG files for you (see below).
-
-Until a folder has at least one image, that gallery shows placeholder art.
-
-## Publishing
-
-- **On your Mac (recommended):** drop the files in, then double-click
-  `Publish Artwork.command` in the project folder. It:
-  1. makes big images website-sized: anything longer than 2400 px is scaled
-     down, and a heavy PNG without transparency becomes a JPG;
-  2. keeps your untouched full-size originals in `artwork-originals/` in the
-     project folder (that folder stays on your Mac and is never uploaded);
-  3. commits and pushes the artwork, and the live site updates about a minute
-     later.
-- **On github.com:** open this folder in the repo, choose **Add file → Upload
-  files**, drag the images in, and click **Commit changes**. The site redeploys
-  on its own. Images uploaded this way are **not** shrunk, so resize big ones
-  first (around 2400 px on the longest side, under ~3 MB).
+Open `src/artworks/2d` (or `3d`) in the repo on github.com, choose **Add file
+→ Upload files**, drag the images in, and click **Commit changes**. The site
+redeploys on its own. These uploads aren't resized, so shrink big images
+first (around 2000 px on the longest side). The next time you publish from
+your Mac, they're also copied into `artwork-originals/`.

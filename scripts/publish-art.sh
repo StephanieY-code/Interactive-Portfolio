@@ -1,7 +1,9 @@
 #!/bin/sh
-# Publishes new, changed, or deleted artwork (src/artworks) and VR worlds
-# (src/vr-worlds) to GitHub. Pushing to main makes GitHub Actions rebuild
-# the live site (about a minute).
+# Publishes your artwork and VR worlds to the live site:
+#   artwork-originals/2d  (full-size images)  → website-sized copies, 2D gallery
+#   artwork-originals/3d  (.blend files)      → spinning videos, 3D gallery
+#   src/vr-worlds                             → VR worlds
+# then commits and pushes to GitHub, which rebuilds the site (about a minute).
 #
 # Run it by double-clicking "Publish Artwork.command" in Finder,
 # or from a terminal with: pnpm art:publish
@@ -37,7 +39,10 @@ echo "→ Getting the latest version from GitHub..."
 git_gh pull --rebase --autostash --quiet origin main \
   || fail "Couldn't update from GitHub. Fix the message above, then try again."
 
-echo "→ Checking artwork-originals/3d for new or changed Blender files..."
+echo "→ Updating the 2D gallery from artwork-originals/2d..."
+sh scripts/sync-2d.sh || fail "Couldn't update the 2D gallery. Check the message above."
+
+echo "→ Updating the 3D gallery from Blender files in artwork-originals/3d..."
 sh scripts/turntables.sh || fail "Couldn't make the 3D spins. Check the message above."
 
 echo "→ Making big images website-sized..."
@@ -50,7 +55,8 @@ git add -A -- $CONTENT
 if git diff --cached --quiet -- $CONTENT; then
   echo ""
   echo "Nothing new to publish."
-  echo "Put images in src/artworks/2d or 3d (or export a VR world), then run this again."
+  echo "Add images to artwork-originals/2d, .blend files to artwork-originals/3d,"
+  echo "or export a VR world, then run this again."
   exit 0
 fi
 

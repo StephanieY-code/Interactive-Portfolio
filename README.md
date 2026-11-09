@@ -15,21 +15,17 @@ Then open http://localhost:8443.
 
 ## Add artwork
 
-1. Put images in `src/artworks/2d` or `src/artworks/3d`. Number them to set
-   the order: `01-sunset.png`, `02-goose.jpg`, ...
-2. Double-click **`Publish Artwork.command`** in this folder (or run
-   `pnpm art:publish`). It shrinks big images to website size, keeps the
-   full-size originals in `artwork-originals/` (never uploaded), then commits
-   and pushes just the artwork.
+1. Put your full-size art in **`artwork-originals/`** in this folder (it
+   stays on your Mac and is never uploaded). Number files to set the order:
+   `01-sunset.jpg`, `02-goose.png`, ...
+   - **2D:** images go in `artwork-originals/2d/`.
+   - **3D:** `.blend` files go in `artwork-originals/3d/`.
+2. Double-click **`Publish Artwork.command`** (or run `pnpm art:publish`). It
+   makes website-sized copies of new or changed 2D images (and removes ones
+   you deleted), renders a looping 360° spin of each new or changed `.blend`,
+   then commits and pushes.
 3. The live site updates in about a minute.
 
-**3D models:** put a `.blend` file in `artwork-originals/3d/` and publish.
-Blender renders a looping 360° spin of it (a small video, like a GIF) into
-the 3D gallery. It only re-renders when the `.blend` is new or changed.
-
-You can also upload straight on github.com: open `src/artworks/2d` (or `3d`),
-choose **Add file → Upload files**, then **Commit changes**. Those uploads
-aren't shrunk, so resize big images first.
 More details: [src/artworks/README.md](src/artworks/README.md)
 
 ## VR worlds (Blender → website → Meta Quest)
