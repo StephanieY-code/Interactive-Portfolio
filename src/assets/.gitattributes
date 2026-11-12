@@ -1,0 +1,3 @@
+# Site images, stored as regular files (not Git LFS) so every clone works.
+*.jpg -filter -diff -merge -text
+*.png -filter -diff -merge -text

@@ -1,7 +1,7 @@
 import { OrbitControls, useGLTF } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import type { ThreeEvent } from "@react-three/fiber"
-import { IfInSessionMode, TeleportTarget, XROrigin, useXR } from "@react-three/xr"
+import { IfInSessionMode, TeleportTarget, XROrigin } from "@react-three/xr"
 import { useEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
@@ -334,16 +334,25 @@ const dragDistance = (event: ThreeEvent<MouseEvent>) => {
   }
 }
 
-export function WorldScene({ world }: { world: VRWorld }) {
+/**
+ * The 3D world. `preview` is the small live view inside the VR slide's
+ * screen: same room, lights, and plant, drifting slowly, with no VR controls
+ * or mouse interaction (clicking the screen opens the full world instead).
+ */
+export function WorldScene({
+  world,
+  preview = false,
+}: {
+  world: VRWorld
+  preview?: boolean
+}) {
   const gltf = useGLTF(world.model!) as unknown as GLTF
   const setup = useMemo(
     () => prepareWorld(gltf, world.settings),
     [gltf, world.settings],
   )
   const scale = world.settings.scale ?? 1
-  const inXR = useXR((state) => state.session != null)
   const { gl, camera, size, clock } = useThree()
-  const [origin, setOrigin] = useState(() => setup.spawn.clone())
 
   const mixer = useMemo(() => new THREE.AnimationMixer(gltf.scene), [gltf])
   const touchMixers = useMemo(
@@ -398,6 +407,7 @@ export function WorldScene({ world }: { world: VRWorld }) {
     [],
   )
   useFrame((_, delta) => {
+    if (preview) drift(camera, setup, clock.elapsedTime)
     mixer.update(delta)
     touchMixers.forEach((m) => m.update(delta))
     const now = clock.elapsedTime
@@ -423,7 +433,7 @@ export function WorldScene({ world }: { world: VRWorld }) {
     const count = (hoverCounts.current.get(pivot) ?? 0) + 1
     hoverCounts.current.set(pivot, count)
     if (count === 1) setHighlight(pivot, true)
-    if (!inXR) document.body.style.cursor = "pointer"
+    if (!gl.xr.isPresenting) document.body.style.cursor = "pointer"
   }
 
   const onPointerOut = (event: ThreeEvent<PointerEvent>) => {
@@ -456,7 +466,6 @@ export function WorldScene({ world }: { world: VRWorld }) {
     }
   }
 
-  const { teleportCenter, teleportRadius } = setup
   return (
     <>
       <color attach="background" args={[setup.background.r, setup.background.g, setup.background.b]} />
@@ -469,18 +478,33 @@ export function WorldScene({ world }: { world: VRWorld }) {
         {setup.lights.map((light) => (
           <primitive key={light.uuid} object={light} />
         ))}
-        {setup.touchables.map((pivot) => (
-          <primitive
-            key={pivot.uuid}
-            object={pivot}
-            onPointerOver={onPointerOver}
-            onPointerOut={onPointerOut}
-            onClick={onClick}
-          />
-        ))}
+        {setup.touchables.map((pivot) =>
+          preview ? (
+            <primitive key={pivot.uuid} object={pivot} />
+          ) : (
+            <primitive
+              key={pivot.uuid}
+              object={pivot}
+              onPointerOver={onPointerOver}
+              onPointerOut={onPointerOut}
+              onClick={onClick}
+            />
+          ),
+        )}
       </group>
 
-      {/* Mouse/touch camera controls, removed in VR (the headset moves the camera). */}
+      {!preview && <WorldControls setup={setup} />}
+    </>
+  )
+}
+
+/** Mouse/touch looking around, plus the VR start point and teleporting. */
+function WorldControls({ setup }: { setup: PreparedWorld }) {
+  const [origin, setOrigin] = useState(() => setup.spawn.clone())
+  const { teleportCenter, teleportRadius } = setup
+  return (
+    <>
+      {/* Camera controls are removed in VR (the headset moves the camera). */}
       <IfInSessionMode deny={["immersive-vr", "immersive-ar"]}>
         <OrbitControls
           makeDefault
@@ -505,6 +529,19 @@ export function WorldScene({ world }: { world: VRWorld }) {
       </TeleportTarget>
     </>
   )
+}
+
+// The preview's slow drift: a few degrees left and right around what the
+// Blender camera looks at, once every 16 seconds.
+const driftOffset = new THREE.Vector3()
+function drift(camera: THREE.Camera, setup: PreparedWorld, time: number) {
+  const angle = 0.06 * Math.sin((time * 2 * Math.PI) / 16)
+  driftOffset
+    .subVectors(setup.cameraPosition, setup.target)
+    .applyAxisAngle(THREE.Object3D.DEFAULT_UP, angle)
+  camera.position.copy(setup.target).add(driftOffset)
+  camera.position.y += 0.03 * Math.sin((time * 2 * Math.PI) / 11)
+  camera.lookAt(setup.target)
 }
 
 export const preloadWorldModel = (url: string) => useGLTF.preload(url)

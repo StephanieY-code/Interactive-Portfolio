@@ -1872,7 +1872,9 @@ em {
 .gallery-main,
 .goose-menu,
 .vr-header,
-.vr-grid {
+.vr-grid,
+.vr-stage,
+.vr-invite {
   transition:
     opacity .75s ease,
     transform .95s cubic-bezier(.16, 1, .3, 1),
@@ -1902,14 +1904,17 @@ em {
   transform: translateX(42px);
 }
 
-.slide-section:not(.is-visible) .vr-grid {
+.slide-section:not(.is-visible) .vr-grid,
+.slide-section:not(.is-visible) .vr-stage,
+.slide-section:not(.is-visible) .vr-invite {
   opacity: 0;
   transform: translateY(48px) scale(.975);
   filter: saturate(.8);
 }
 
 .slide-section.is-visible .goose-menu,
-.slide-section.is-visible .vr-grid {
+.slide-section.is-visible .vr-grid,
+.slide-section.is-visible .vr-invite {
   transition-delay: .12s;
 }
 
@@ -1924,9 +1929,126 @@ em {
   .gallery-main,
   .goose-menu,
   .vr-header,
-  .vr-grid {
+  .vr-grid,
+  .vr-stage,
+  .vr-invite {
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
   }
 }
+
+/* VR slide, painted backdrop with one featured world (src/assets/vr-slide.jpg).
+   The artwork keeps its shape: it fills the slide's height, fading softly
+   into its own blue at the sides on wide screens, and zooms in (cropping the
+   sides) on narrow ones so the screen stays big. */
+.vr-section.has-backdrop {
+  display: grid;
+  place-items: end center;
+  padding: 0;
+  background: #5763b7; /* the artwork's own blue */
+}
+
+.vr-section.has-backdrop .vr-header {
+  position: absolute;
+  z-index: 3;
+  top: clamp(1.75rem, 2.8vw, 2.75rem);
+  left: max(3rem, calc((100vw - 1440px) / 2));
+  margin: 0;
+}
+
+.vr-section.has-backdrop .vr-brand {
+  gap: clamp(.4rem, .9vw, .9rem);
+}
+
+.vr-section.has-backdrop .vr-brand > img {
+  width: clamp(46px, 5vw, 76px);
+  height: auto;
+}
+
+/* Your hand-lettered name (src/assets/name-lettering.png). */
+.mini-brand .name-lettering {
+  display: block;
+  object-fit: fill;
+  width: clamp(180px, 22vw, 340px);
+  height: auto;
+}
+
+.vr-stage {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  translate: -50% 0; /* centered even when wider than the screen (phones) */
+  width: min(170vw, 129.45svh); /* 129.45 = 100 x the artwork's 2000/1545 */
+  aspect-ratio: 2000 / 1545;
+}
+
+.vr-backdrop {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The live world, sitting inside the painted cream screen (on the 2000 x
+   1545 artwork: x 690-1400, y 432-917), with a cream border showing all
+   around it like a TV's bezel. */
+.vr-screen {
+  position: absolute;
+  top: 27.96%;
+  left: 34.5%;
+  width: 35.5%;
+  height: 31.39%;
+  overflow: hidden;
+  border-radius: 5.6% / 8.2%;
+  background: #e2dacb;
+  box-shadow: inset 0 0 0 1px rgb(17 27 85 / .08);
+  isolation: isolate; /* keeps the 3D view clipped to the rounded corners */
+  transition: transform .35s cubic-bezier(.2, .8, .2, 1), filter .35s ease;
+}
+
+.vr-screen:hover,
+.vr-screen:focus-visible {
+  filter: brightness(1.05) saturate(1.06);
+  transform: scale(1.025);
+}
+
+.vr-screen.is-opening {
+  animation: portalOpen .9s ease forwards;
+}
+
+.vr-screen .vr-preview-canvas,
+.vr-screen .vr-preview-canvas canvas {
+  position: absolute !important;
+  inset: 0;
+  pointer-events: none; /* the whole screen is one button */
+}
+
+.vr-screen .vr-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vr-screen-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgb(17 27 85 / .55);
+  font-family: 'Fraunces', serif;
+  font-size: clamp(.8rem, 1.3vw, 1.05rem);
+  animation: screenPulse 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes screenPulse {
+  from { opacity: .45; }
+}
+

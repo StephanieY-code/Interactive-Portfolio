@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react"
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -6,11 +6,20 @@ import type {
 import { artworks, type Artwork } from "./artworks"
 import { ArtworkMedia } from "./ArtworkMedia"
 import { getWorld } from "./vr/worlds"
+import vrBackdrop from "./assets/vr-slide.jpg"
+import vrBackdropSmall from "./assets/vr-slide-1200.jpg"
+import nameLettering from "./assets/name-lettering.png"
 
 // The 3D viewer (three.js + WebXR) is a separate download that only starts
 // when someone hovers or opens a VR world, so the main page stays light.
 const loadVRViewer = () => import("./vr/VRViewer")
 const VRViewer = lazy(loadVRViewer)
+// The live view inside the VR slide's painted screen (loads near that slide).
+const WorldPreview = lazy(() => import("./vr/WorldPreview"))
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
 
 // Resolves files in public/assets against Vite's base URL, so images load both
 // at the site root (Figma Make, local dev) and under a subpath (GitHub Pages).
@@ -28,6 +37,10 @@ const vrProjects = [
   { number: "02", className: "clouds" },
   { number: "03", className: "moon" },
 ].map((project) => ({ ...project, world: getWorld(project.className) }))
+
+// For now the VR slide shows one world (the first) inside its painted screen.
+// The other cards' folders still work; they just aren't shown on the slide.
+const featuredWorld = vrProjects[0]
 
 // Start downloading the 3D viewer and this world's model ahead of the click.
 const warmUpWorld = (project: (typeof vrProjects)[number]) => {
@@ -77,9 +90,16 @@ export default function App() {
   const [selectedWorld, setSelectedWorld] =
     useState<typeof vrProjects[number] | null>(null)
   const [vrMode, setVrMode] = useState(false)
+  // The VR slide's live screen: load it when the slide is near, and only let
+  // it animate while the slide is actually on screen.
+  const [screenNear, setScreenNear] = useState(false)
+  const [screenOnView, setScreenOnView] = useState(false)
+  const [screenReady, setScreenReady] = useState(false)
   const [edgeFade, setEdgeFade] = useState({ left: false, right: false })
   const galleryRef = useRef<HTMLElement>(null)
   const vrRef = useRef<HTMLElement>(null)
+  const screenRef = useRef<HTMLButtonElement>(null)
+  const markScreenReady = useCallback(() => setScreenReady(true), [])
   const scrollerRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{
@@ -210,6 +230,32 @@ export default function App() {
     const timer = window.setTimeout(() => setVrMode(true), 900)
     return () => window.clearTimeout(timer)
   }, [selectedWorld])
+
+  // Watch the VR slide's screen: start loading the live world about a screen
+  // away, and animate it only while it's visible.
+  useEffect(() => {
+    const screen = screenRef.current
+    if (!screen || !featuredWorld.world.model) return
+    const near = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setScreenNear(true)
+          near.disconnect()
+        }
+      },
+      { rootMargin: "100% 0px" },
+    )
+    const onView = new IntersectionObserver(
+      ([entry]) => setScreenOnView(entry.isIntersecting),
+      { threshold: 0.15 },
+    )
+    near.observe(screen)
+    onView.observe(screen)
+    return () => {
+      near.disconnect()
+      onView.disconnect()
+    }
+  }, [])
 
   useEffect(() => {
     const slides = document.querySelectorAll<HTMLElement>(".slide-section")
@@ -396,53 +442,66 @@ export default function App() {
       </section>
 
       <section
-        className="vr-section slide-section"
+        className="vr-section has-backdrop slide-section"
         ref={vrRef}
         aria-labelledby="vr-heading"
       >
-        <div className="vr-glow glow-one" />
-        <div className="vr-glow glow-two" />
         <header className="vr-header">
           <div className="mini-brand vr-brand">
             <img src={asset("tomato-mark.png")} alt="" />
-            <h2 id="vr-heading">Stephanie Yang</h2>
+            {/* Hand-lettered, lifted from the gallery mockup in .figma/attachments. */}
+            <h2 id="vr-heading">
+              <img className="name-lettering" src={nameLettering} alt="Stephanie Yang" />
+            </h2>
           </div>
         </header>
 
-        <div className="vr-grid">
-          {vrProjects.map((project) => (
-            <button
-              className={`vr-card ${project.className} ${
-                selectedWorld?.number === project.number ? "is-opening" : ""
-              }`}
-              key={project.number}
-              onClick={() => {
-                warmUpWorld(project)
-                setSelectedWorld(project)
-              }}
-              onPointerEnter={() => warmUpWorld(project)}
-              onFocus={() => warmUpWorld(project)}
-              aria-label={`Enter the ${project.world.title} world`}
-            >
-              <span className="vr-art" aria-hidden="true">
-                {project.world.cover ? (
-                  <img className="vr-cover" src={project.world.cover} alt="" />
-                ) : (
-                  <>
-                    <i className="shape shape-a" />
-                    <i className="shape shape-b" />
-                    <i className="shape shape-c" />
-                  </>
+        {/* The painted slide; the world plays live inside its cream screen. */}
+        <div className="vr-stage">
+          <img
+            className="vr-backdrop"
+            src={vrBackdrop}
+            srcSet={`${vrBackdropSmall} 1200w, ${vrBackdrop} 2000w`}
+            sizes="min(170vw, 129.45svh)"
+            alt=""
+          />
+          <button
+            ref={screenRef}
+            className={`vr-screen${selectedWorld ? " is-opening" : ""}`}
+            onClick={() => {
+              warmUpWorld(featuredWorld)
+              setScreenReady(false)
+              setSelectedWorld(featuredWorld)
+            }}
+            onPointerEnter={() => warmUpWorld(featuredWorld)}
+            onFocus={() => warmUpWorld(featuredWorld)}
+            aria-label={`Enter the ${featuredWorld.world.title} world`}
+          >
+            {featuredWorld.world.model ? (
+              <>
+                {screenNear && !selectedWorld && (
+                  <Suspense fallback={null}>
+                    <WorldPreview
+                      world={featuredWorld.world}
+                      playing={screenOnView && !prefersReducedMotion()}
+                      onReady={markScreenReady}
+                    />
+                  </Suspense>
                 )}
-              </span>
-            </button>
-          ))}
-
-          <div className="vr-invite">
-            <img src={asset("goose-vr.png")} alt="" />
-            <p>Travel Inside!</p>
-          </div>
+                {!screenReady && (
+                  <span className="vr-screen-status" aria-hidden="true">
+                    Loading the {featuredWorld.world.title.toLowerCase()}…
+                  </span>
+                )}
+              </>
+            ) : (
+              featuredWorld.world.cover && (
+                <img className="vr-cover" src={featuredWorld.world.cover} alt="" />
+              )
+            )}
+          </button>
         </div>
+
       </section>
 
       {selectedArtwork && (
