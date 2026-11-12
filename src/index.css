@@ -2,7 +2,7 @@
 @import 'tailwindcss';
 
 :root {
-  --blue: #5968b8;
+  --blue: #5763b7; /* matches the painted VR slide (src/assets/vr-slide.jpg) */
   --blue-dark: #111b55;
   --cream: #ead394;
   --paper: #fffaf0;
@@ -1677,9 +1677,9 @@ em {
 .gallery-main .art-window {
   display: flex;
   align-items: center;
-  /* 100svh minus section padding (6rem) and the brand header (~5.5rem),
-     so the whole gallery slide fits in one screen. */
-  min-height: calc(100svh - 11.5rem);
+  /* 100svh minus the section padding (6rem), the header's gap (2rem), and
+     the header itself (the tomato's size), so the slide fits one screen. */
+  min-height: calc(100svh - 8.1rem - clamp(46px, 5vw, 76px));
 }
 
 .goose-menu button {
@@ -1946,7 +1946,7 @@ em {
   display: grid;
   place-items: end center;
   padding: 0;
-  background: #5763b7; /* the artwork's own blue */
+  background: var(--blue);
 }
 
 .vr-section.has-backdrop .vr-header {
@@ -1957,22 +1957,45 @@ em {
   margin: 0;
 }
 
-.vr-section.has-backdrop .vr-brand {
+/* "Stephanie Yang" in the corner of the gallery and VR slides: the tomato
+   plus Stephanie's own lettering (src/assets/name-lettering.png). */
+.mini-brand {
   gap: clamp(.4rem, .9vw, .9rem);
 }
 
-.vr-section.has-backdrop .vr-brand > img {
+.mini-brand > img:first-child {
   width: clamp(46px, 5vw, 76px);
   height: auto;
 }
 
-/* Your hand-lettered name (src/assets/name-lettering.png). */
 .mini-brand .name-lettering {
   display: block;
   object-fit: fill;
   width: clamp(180px, 22vw, 340px);
   height: auto;
 }
+
+/* The opening title, also in her lettering (src/assets/title-*.png, from the
+   landing mockup). Sized in em, so the existing responsive font sizes still
+   decide how big it is; each line keeps the lettering's proportions
+   (its pixel width x 0.00414em). */
+.hero h1 {
+  /* One "letter size" for all four lines: the usual font size, but never so
+     big that "Stephanie" (the widest line) runs off a narrow phone screen. */
+  --title-unit: min(1em, 16.5vw);
+}
+
+.hero h1 .title-line img {
+  display: block;
+  max-width: none;
+  height: auto;
+  margin-bottom: -.1em;
+}
+
+.title-stephanie img { width: calc(5.13 * var(--title-unit)); }
+.title-yang img { width: calc(2.59 * var(--title-unit)); }
+.title-creative img { width: calc(4.37 * var(--title-unit)); }
+.title-portfolio img { width: calc(4.62 * var(--title-unit)); }
 
 .vr-stage {
   position: absolute;

@@ -9,6 +9,10 @@ import { getWorld } from "./vr/worlds"
 import vrBackdrop from "./assets/vr-slide.jpg"
 import vrBackdropSmall from "./assets/vr-slide-1200.jpg"
 import nameLettering from "./assets/name-lettering.png"
+import titleStephanie from "./assets/title-stephanie.png"
+import titleYang from "./assets/title-yang.png"
+import titleCreative from "./assets/title-creative.png"
+import titlePortfolio from "./assets/title-portfolio.png"
 
 // The 3D viewer (three.js + WebXR) is a separate download that only starts
 // when someone hovers or opens a VR world, so the main page stays light.
@@ -311,11 +315,20 @@ export default function App() {
         />
 
         <div className="hero-copy">
+          {/* Hand-lettered, lifted from the landing mockup in .figma/attachments. */}
           <h1 id="hero-title">
-            <span>Stephanie</span>
-            <span>Yang</span>
-            <span>Creative</span>
-            <span>Portfolio</span>
+            <span className="title-line title-stephanie">
+              <img src={titleStephanie} alt="Stephanie" />
+            </span>
+            <span className="title-line title-yang">
+              <img src={titleYang} alt="Yang" />
+            </span>
+            <span className="title-line title-creative">
+              <img src={titleCreative} alt="Creative" />
+            </span>
+            <span className="title-line title-portfolio">
+              <img src={titlePortfolio} alt="Portfolio" />
+            </span>
           </h1>
         </div>
 
@@ -338,7 +351,7 @@ export default function App() {
         <header className="section-header">
           <div className="mini-brand">
             <img src={asset("tomato-mark.png")} alt="" />
-            <span>Stephanie Yang</span>
+            <img className="name-lettering" src={nameLettering} alt="Stephanie Yang" />
           </div>
         </header>
 
