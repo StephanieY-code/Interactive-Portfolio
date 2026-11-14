@@ -15,6 +15,7 @@ import type {
 import { artworks, type Artwork } from "./artworks"
 import { ArtworkMedia } from "./ArtworkMedia"
 import { getWorld } from "./vr/worlds"
+import WorldMorph, { type ScreenShape } from "./WorldMorph"
 import vrBackdrop from "./assets/vr-slide.jpg"
 import vrBackdropSmall from "./assets/vr-slide-1200.jpg"
 import nameLettering from "./assets/name-lettering.png"
@@ -26,7 +27,6 @@ import titlePortfolio from "./assets/title-portfolio.png"
 // The 3D viewer (three.js + WebXR) is a separate download that only starts
 // when someone hovers or opens a VR world, so the main page stays light.
 const loadVRViewer = () => import("./vr/VRViewer")
-const VRViewer = lazy(loadVRViewer)
 // A live view for the VR slide's painted screen, used only when a world has
 // no cover drawing or video (loads near that slide).
 const WorldPreview = lazy(() => import("./vr/WorldPreview"))
@@ -89,6 +89,8 @@ const showcaseEntries: GalleryEntry[] =
 const ZOOM_TRANSITION =
   "opacity .75s ease, transform 1.4s cubic-bezier(.65, 0, .35, 1), filter .95s ease"
 const ZOOM_SECONDS = 1.4
+// The drawing flipping over to the 3D render (match .vr-flip in index.css).
+const FLIP_SECONDS = 1.2
 
 // How fast the showcase glides, in pixels per second.
 const SHOWCASE_SPEED = 40
@@ -117,6 +119,8 @@ export default function App() {
   // Clicking the screen: "playing" shows the drawing's timelapse, then
   // "zoomed" zooms into the screen, and one more click steps inside.
   const [screenStep, setScreenStep] = useState<"idle" | "playing" | "zoomed">("idle")
+  // Once zoomed in, the drawing flips over to show the 3D render.
+  const [showRender, setShowRender] = useState(false)
   const [zoomStyle, setZoomStyle] = useState<CSSProperties>()
   const stageRef = useRef<HTMLDivElement>(null)
   const [edgeFade, setEdgeFade] = useState({ left: false, right: false })
@@ -124,10 +128,6 @@ export default function App() {
   const vrRef = useRef<HTMLElement>(null)
   const screenRef = useRef<HTMLButtonElement>(null)
   const coverVideoRef = useRef<HTMLVideoElement>(null)
-  const worldWindowRef = useRef<HTMLDivElement>(null)
-  // Only a press that starts on the dark backdrop closes the world, so
-  // dragging to look around and letting go outside the panel doesn't.
-  const pressedBackdrop = useRef(false)
   const markScreenReady = useCallback(() => setScreenReady(true), [])
   const scrollerRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -321,6 +321,7 @@ export default function App() {
   useEffect(() => {
     if (screenStep !== "idle") return
     coverVideoRef.current?.pause()
+    setShowRender(false) // flips back to the drawing as it zooms out
     setZoomStyle((zoom) =>
       zoom && {
         transformOrigin: zoom.transformOrigin,
@@ -357,8 +358,8 @@ export default function App() {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       if (selectedArtwork) setSelectedArtwork(null)
-      else if (selectedWorld) closeWorld()
-      else setScreenStep("idle")
+      else if (!selectedWorld) setScreenStep("idle") // the open world handles its own
+
     }
     window.addEventListener("keydown", closeOnEscape)
     return () => window.removeEventListener("keydown", closeOnEscape)
@@ -375,30 +376,50 @@ export default function App() {
     galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
-  const closeWorld = () => {
-    if (document.fullscreenElement) document.exitFullscreen?.()
-    setSelectedWorld(null)
-    setScreenStep("idle") // zooms back out to the slide
-  }
+  // Where the TV is on screen (zoomed or not), for the drawing-to-3D change.
+  const screenShape = useCallback((): ScreenShape => {
+    const rect = screenRef.current?.getBoundingClientRect()
+    if (!rect) return { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight, rx: 0, ry: 0 }
+    // The TV's rounded corners (see .vr-screen in index.css).
+    return { x: rect.left, y: rect.top, w: rect.width, h: rect.height, rx: rect.width * 0.056, ry: rect.height * 0.082 }
+  }, [])
 
+  // Clicks wait for the zoom or flip to finish, so everything lines up.
+  const busyUntil = useRef(0)
   const openFeaturedWorld = () => {
+    if (performance.now() < busyUntil.current) return
     warmUpWorld(featuredWorld)
     setScreenReady(false)
     setSelectedWorld(featuredWorld)
   }
 
+  // Zoomed in: the first click flips the drawing over to the 3D render; the
+  // next one steps into the live 3D world, from that same point of view.
+  const nextFromZoom = () => {
+    if (performance.now() < busyUntil.current) return
+    if (featuredWorld.world.render && !showRender) {
+      busyUntil.current = performance.now() + FLIP_SECONDS * 1000
+      setShowRender(true)
+    } else {
+      openFeaturedWorld()
+    }
+  }
+
   const zoomIntoScreen = () => {
+    busyUntil.current = performance.now() + ZOOM_SECONDS * 1000
     setScreenStep("zoomed")
     vrRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
   // Click 1 plays the timelapse (a click while it plays skips it), then the
-  // slide zooms into the screen; click 2 steps into the 3D world. A world
-  // with no cover (a live view on the screen) opens straight away.
+  // slide zooms into the screen; click 2 flips the drawing to the 3D render;
+  // click 3 steps into the 3D world. A world with no cover (a live view on
+  // the screen) opens straight away.
   const clickScreen = () => {
     const { cover, coverVideo } = featuredWorld.world
     warmUpWorld(featuredWorld) // the 3D world downloads during the video
-    if ((!cover && !coverVideo) || screenStep === "zoomed") return openFeaturedWorld()
+    if (!cover && !coverVideo) return openFeaturedWorld()
+    if (screenStep === "zoomed") return nextFromZoom()
     const video = coverVideoRef.current
     if (screenStep === "playing" || !video) {
       video?.pause()
@@ -407,11 +428,6 @@ export default function App() {
     video.currentTime = 0
     setScreenStep("playing")
     video.play().catch(zoomIntoScreen)
-  }
-
-  const toggleWorldFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen?.()
-    else void worldWindowRef.current?.requestFullscreen?.()
   }
 
   return (
@@ -607,26 +623,39 @@ export default function App() {
                 ? `Watch the ${featuredWorld.world.title} drawing come together`
                 : screenStep === "playing"
                   ? "Skip the timelapse"
-                  : `Step inside the ${featuredWorld.world.title} world`
+                  : featuredWorld.world.render && !showRender
+                    ? `Flip the drawing over to the ${featuredWorld.world.title} in 3D`
+                    : `Step inside the ${featuredWorld.world.title} world`
             }
           >
             {featuredWorld.world.cover || featuredWorld.world.coverVideo ? (
               <>
-                {featuredWorld.world.cover && (
-                  <img className="vr-cover" src={featuredWorld.world.cover} alt="" />
-                )}
-                {featuredWorld.world.coverVideo && screenNear && (
-                  <video
-                    ref={coverVideoRef}
-                    className="vr-cover vr-timelapse"
-                    src={featuredWorld.world.coverVideo}
-                    muted
-                    playsInline
-                    preload="auto"
-                    onEnded={zoomIntoScreen}
-                    aria-hidden="true"
-                  />
-                )}
+                {/* A card: the drawing (and its timelapse) on the front,
+                    the 3D render on the back. */}
+                <span className="vr-flip" data-flipped={showRender}>
+                  <span className="vr-flip-face">
+                    {featuredWorld.world.cover && (
+                      <img className="vr-cover" src={featuredWorld.world.cover} alt="" />
+                    )}
+                    {featuredWorld.world.coverVideo && screenNear && (
+                      <video
+                        ref={coverVideoRef}
+                        className="vr-cover vr-timelapse"
+                        src={featuredWorld.world.coverVideo}
+                        muted
+                        playsInline
+                        preload="auto"
+                        onEnded={zoomIntoScreen}
+                        aria-hidden="true"
+                      />
+                    )}
+                  </span>
+                  {featuredWorld.world.render && screenNear && (
+                    <span className="vr-flip-face vr-flip-back">
+                      <img className="vr-cover" src={featuredWorld.world.render} alt="" />
+                    </span>
+                  )}
+                </span>
                 {featuredWorld.world.coverVideo && screenStep !== "zoomed" && (
                   <span className="vr-screen-hint" aria-hidden="true">
                     {screenStep === "playing" ? "Skip ›" : "▶\uFE0E Watch"}
@@ -656,10 +685,17 @@ export default function App() {
 
         {screenStep === "zoomed" && (
           <>
-            <button className="enter-vr-button vr-step-inside" onClick={openFeaturedWorld}>
-              <i aria-hidden="true" />
-              Step inside
-            </button>
+            {featuredWorld.world.render && !showRender ? (
+              <button key="flip" className="enter-vr-button vr-step-inside" onClick={nextFromZoom}>
+                <b className="flip-icon" aria-hidden="true">↻</b>
+                See it in 3D
+              </button>
+            ) : (
+              <button key="inside" className="enter-vr-button vr-step-inside" onClick={nextFromZoom}>
+                <i aria-hidden="true" />
+                Step inside
+              </button>
+            )}
             <button
               className="lightbox-close vr-zoom-back"
               onClick={() => setScreenStep("idle")}
@@ -704,69 +740,15 @@ export default function App() {
       )}
 
       {selectedWorld && (
-        // The world opens in a big framed panel, like the artwork popup.
-        <div
-          className="art-lightbox world-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${selectedWorld.world.title} world`}
-          onPointerDown={(event) => {
-            pressedBackdrop.current = event.target === event.currentTarget
-          }}
-          onClick={(event) => {
-            if (event.target === event.currentTarget && pressedBackdrop.current) {
-              closeWorld()
-            }
-          }}
-        >
-          <div className="world-window" ref={worldWindowRef}>
-            <div
-              className={`immersive-world${
-                selectedWorld.world.model ? " has-model" : ""
-              }`}
-            >
-              {selectedWorld.world.model ? (
-                <Suspense
-                  fallback={<p className="vr-status">Opening the world…</p>}
-                >
-                  <VRViewer world={selectedWorld.world} />
-                </Suspense>
-              ) : (
-                <>
-                  <div className="world-sky">
-                    <span className="world-moon" />
-                    <span className="world-star star-1" />
-                    <span className="world-star star-2" />
-                    <span className="world-star star-3" />
-                  </div>
-                  <div className="world-hill hill-back" />
-                  <div className="world-hill hill-front" />
-                  <div className="world-object object-one" />
-                  <div className="world-object object-two" />
-                  <div className="world-object object-three" />
-                </>
-              )}
-            </div>
-            {document.fullscreenEnabled && (
-              <div className="world-controls">
-                <button
-                  className="fullscreen-button"
-                  onClick={toggleWorldFullscreen}
-                  aria-label="Fullscreen"
-                >
-                  <i aria-hidden="true" />
-                </button>
-              </div>
-            )}
-            <button
-              className="lightbox-close"
-              onClick={closeWorld}
-              aria-label="Close"
-            >
-              <i aria-hidden="true" />
-            </button>
-          </div>
-        </div>
+        // The drawing turns into the 3D world (and back when closed).
+        <WorldMorph
+          world={selectedWorld.world}
+          cover={
+            showRender ? selectedWorld.world.render : selectedWorld.world.cover
+          }
+          screen={screenShape}
+          onClosed={() => setSelectedWorld(null)}
+        />
       )}
     </main>
   )

@@ -6,7 +6,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js"
-import type { TouchableGroup, VRWorld, WorldSettings } from "./worlds"
+import { MORPH_TIMELINE, easeInOut, phase, type Morph, type ViewRect } from "./morph"
+import type { CoverCamera, TouchableGroup, VRWorld, WorldSettings } from "./worlds"
 
 RectAreaLightUniformsLib.init()
 
@@ -38,6 +39,21 @@ type ViewLut = { size: number; min: number; max: number; data: string }
 // Compressed models are unpacked by the Draco decoder in public/draco/.
 const DRACO_PATH = `${import.meta.env.BASE_URL}draco/`
 
+/** A camera view: what it looks at, from which side, and how wide. */
+type Pose = {
+  target: THREE.Vector3
+  /** From the target toward the camera (length 1). */
+  direction: THREE.Vector3
+  /** Half the width of scene in view, at the target (meters). */
+  halfWidth: number
+  /** Horizontal field of view (radians). */
+  hfov: number
+}
+
+// A flat-looking view: a very long lens from far away, like Blender's
+// orthographic camera (the drawing's view starts like this).
+const FLAT_FOV = THREE.MathUtils.degToRad(6)
+
 type PreparedWorld = {
   background: THREE.Color
   /** What's drawn behind the world: a plain color already in Blender's
@@ -57,6 +73,13 @@ type PreparedWorld = {
   cameraPosition: THREE.Vector3
   target: THREE.Vector3
   horizontalFov: number
+  /** The view the cover drawing matches, and the view the 3D world opens on. */
+  coverPose: Pose
+  openPose: Pose
+  /** Width / height of the Blender render (the drawing's shape). */
+  renderAspect: number
+  /** How far the world reaches from its middle (meters). */
+  sceneRadius: number
   spawn: THREE.Vector3
   spawnYaw: number
   teleportCenter: THREE.Vector3
@@ -228,6 +251,55 @@ function makeTouchables(
     pivots.push(pivot)
   }
   return pivots
+}
+
+/** A camera from Blender's N panel numbers (Z up) in web coordinates (Y up). */
+function blenderCameraView(camera: CoverCamera) {
+  const toWeb = (v: THREE.Vector3) => new THREE.Vector3(v.x, v.z, -v.y)
+  const [rx, ry, rz] = camera.rotation.map(THREE.MathUtils.degToRad)
+  // Blender's XYZ rotation turns around X first, then Y, then Z.
+  const look = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(rx, ry, rz, "ZYX"))
+  return {
+    position: toWeb(new THREE.Vector3(...camera.location)),
+    direction: toWeb(look).normalize(),
+  }
+}
+
+/** A view partway between two views: it turns, moves, and changes lens
+ * smoothly, keeping the same width of scene in view (a "dolly zoom"). */
+function blendPose(a: Pose, b: Pose, t: number) {
+  const target = a.target.clone().lerp(b.target, t)
+  const direction = a.direction.clone().lerp(b.direction, t).normalize()
+  const hfov = Math.exp(THREE.MathUtils.lerp(Math.log(a.hfov), Math.log(b.hfov), t))
+  const halfWidth = THREE.MathUtils.lerp(a.halfWidth, b.halfWidth, t)
+  const distance = halfWidth / Math.tan(hfov / 2)
+  return { target, position: target.clone().addScaledVector(direction, distance), hfov, distance }
+}
+
+/** Aims the camera's lens at one rectangle of the canvas: the scene is framed
+ * for that rectangle (the TV, or the big window), wherever it is on screen. */
+function frameCamera(
+  camera: THREE.PerspectiveCamera,
+  frame: ViewRect,
+  width: number,
+  height: number,
+  hfov: number,
+  near: number,
+  /** 0: fill the frame's width (like the drawing in the TV). 1: also keep
+   * the whole height of the render in view (on wide screens). */
+  fitWhole = 0,
+  renderAspect = 16 / 9,
+) {
+  const aspect = frame.w / Math.max(1, frame.h)
+  const widthFit = Math.tan(hfov / 2) / aspect
+  const wholeFit = Math.tan(hfov / 2) / Math.min(aspect, renderAspect)
+  camera.aspect = aspect
+  camera.fov = THREE.MathUtils.radToDeg(
+    2 * Math.atan(THREE.MathUtils.lerp(widthFit, wholeFit, fitWhole)),
+  )
+  camera.near = near
+  camera.far = 500
+  camera.setViewOffset(frame.w, frame.h, -frame.x, -frame.y, width, height)
 }
 
 const findObject = (scene: THREE.Object3D, name: string) => {
@@ -429,6 +501,7 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
   const target = hit
     ? hit.point.clone()
     : cameraPosition.clone().addScaledVector(cameraDirection, 10)
+  const blenderView = { position: cameraPosition.clone(), direction: cameraDirection.clone() }
 
   // An orthographic (flat, no perspective) Blender camera: the web view
   // steps back along the same line of sight with a long lens, so it frames
@@ -441,6 +514,41 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
       .copy(target)
       .addScaledVector(cameraDirection, -halfWidth / Math.tan(horizontalFov / 2))
   }
+
+  // The view the cover drawing was painted from: world.json's coverCamera,
+  // or else the Blender camera. Flat (orthographic) cameras become FLAT_FOV.
+  const coverPose = ((): Pose => {
+    const flat = flatCamera?.isOrthographicCamera
+    const own = settings.coverCamera
+    const from = own ? blenderCameraView(own) : blenderView
+    const aim = own
+      ? (new THREE.Raycaster(from.position, from.direction, 0.01, 1000)
+          .intersectObjects(meshes, false)
+          .find((h) => !materialsOf(h.object as THREE.Mesh).some((m) => m.transparent))
+          ?.point ?? from.position.clone().addScaledVector(from.direction, 10))
+      : target.clone()
+    const distance = from.position.distanceTo(aim)
+    let halfWidth: number
+    let hfov: number
+    if (own) {
+      hfov = own.orthographicScale ? FLAT_FOV : THREE.MathUtils.degToRad(own.fov ?? 40)
+      halfWidth = own.orthographicScale
+        ? own.orthographicScale / 2
+        : distance * Math.tan(hfov / 2)
+    } else if (flat) {
+      hfov = FLAT_FOV
+      halfWidth = (flatCamera!.right - flatCamera!.left) / 2 / flatCamera!.zoom
+    } else {
+      hfov = horizontalFov
+      halfWidth = distance * Math.tan(hfov / 2)
+    }
+    return {
+      target: aim.multiplyScalar(scale),
+      direction: from.direction.clone().negate(),
+      halfWidth: halfWidth * scale,
+      hfov,
+    }
+  })()
 
   // Fog only far beyond the world, so the whole scene stays crisp.
   const sceneBox = new THREE.Box3().setFromObject(scene)
@@ -555,6 +663,19 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
     })
   }
 
+  // The 3D world opens from the same point of view as the cover picture;
+  // a flat view gets a normal lens there, so it has real depth.
+  const openPose: Pose = {
+    target: coverPose.target.clone(),
+    direction: coverPose.direction.clone(),
+    halfWidth: coverPose.halfWidth,
+    hfov: coverPose.hfov === FLAT_FOV ? THREE.MathUtils.degToRad(30) : coverPose.hfov,
+  }
+
+  const renderAspect = flatCamera?.isOrthographicCamera
+    ? (flatCamera.right - flatCamera.left) / (flatCamera.top - flatCamera.bottom)
+    : ((blenderCamera as THREE.PerspectiveCamera | undefined)?.aspect ?? 16 / 9)
+
   const result: PreparedWorld = {
     background,
     backdrop,
@@ -569,6 +690,10 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
     cameraPosition: cameraPosition.multiplyScalar(scale),
     target: target.multiplyScalar(scale),
     horizontalFov,
+    coverPose,
+    openPose,
+    renderAspect,
+    sceneRadius: bounds.radius * scale,
     spawn: spawn.multiplyScalar(scale),
     spawnYaw: Math.atan2(-facing.x, -facing.z),
     teleportCenter: teleportCenter.multiplyScalar(scale),
@@ -623,9 +748,12 @@ const dragDistance = (event: ThreeEvent<MouseEvent>) => {
 export function WorldScene({
   world,
   preview = false,
+  morph,
 }: {
   world: VRWorld
   preview?: boolean
+  /** Opening from the cover drawing: the camera follows this. */
+  morph?: Morph
 }) {
   const gltf = useGLTF(world.model!, DRACO_PATH) as unknown as GLTF
   const setup = useMemo(
@@ -633,7 +761,14 @@ export function WorldScene({
     [gltf, world.settings],
   )
   const scale = world.settings.scale ?? 1
-  const { gl, camera, size, clock } = useThree()
+  const { gl, camera, size, clock, scene } = useThree()
+  const controls = useThree((state) => state.controls) as unknown as {
+    target: THREE.Vector3
+    enabled: boolean
+  } | null
+  // Where the visitor left the camera, so closing glides back from there.
+  const leftAt = useRef<Pose | null>(null)
+  const wasSettled = useRef(false)
 
   const mixer = useMemo(() => new THREE.AnimationMixer(gltf.scene), [gltf])
   const touchMixers = useMemo(
@@ -667,14 +802,15 @@ export function WorldScene({
 
   // On a screen, the view starts where the Blender camera is...
   useEffect(() => {
+    if (morph) return // the opening animation places the camera
     camera.position.copy(setup.cameraPosition)
     camera.lookAt(setup.target)
-  }, [camera, setup])
+  }, [camera, setup, morph])
 
   // ...and shows the same width of scene on any screen shape.
   useEffect(() => {
     const perspective = camera as THREE.PerspectiveCamera
-    if (!perspective.isPerspectiveCamera) return
+    if (morph || !perspective.isPerspectiveCamera) return
     const aspect = size.width / Math.max(1, size.height)
     const vertical = 2 * Math.atan(Math.tan(setup.horizontalFov / 2) / aspect)
     perspective.fov = THREE.MathUtils.clamp(
@@ -685,7 +821,72 @@ export function WorldScene({
     perspective.near = 0.05
     perspective.far = 500
     perspective.updateProjectionMatrix()
-  }, [camera, size, setup])
+  }, [camera, size, setup, morph])
+
+  // Opening from the drawing (and closing back to it): the camera starts on
+  // the drawing's flat view inside the TV, then turns into 3D depth as the
+  // view grows into the big window. Once open, the visitor takes over.
+  useFrame(() => {
+    const perspective = camera as THREE.PerspectiveCamera
+    if (!morph || !perspective.isPerspectiveCamera || gl.xr.isPresenting) return
+    const fog = scene.fog as THREE.Fog | null
+    if (morph.settled) {
+      if (!wasSettled.current) {
+        wasSettled.current = true
+        if (controls) controls.enabled = true
+        if (fog) {
+          fog.near = setup.fogNear
+          fog.far = setup.fogNear + 26
+        }
+      }
+      frameCamera(
+        perspective,
+        morph.frame,
+        size.width,
+        size.height,
+        setup.openPose.hfov,
+        0.05,
+        1,
+        setup.renderAspect,
+      )
+      perspective.updateProjectionMatrix()
+      return
+    }
+    if (wasSettled.current) {
+      // Closing: glide back to the drawing from wherever the visitor looked.
+      wasSettled.current = false
+      const aim = controls?.target.clone() ?? setup.openPose.target.clone()
+      const distance = perspective.position.distanceTo(aim)
+      leftAt.current = {
+        target: aim,
+        direction: perspective.position.clone().sub(aim).normalize(),
+        halfWidth: distance * Math.tan(setup.openPose.hfov / 2),
+        hfov: setup.openPose.hfov,
+      }
+    }
+    if (controls) controls.enabled = false
+    const t = easeInOut(phase(morph.progress, MORPH_TIMELINE.camera))
+    const pose = blendPose(setup.coverPose, leftAt.current ?? setup.openPose, t)
+    perspective.position.copy(pose.position)
+    perspective.lookAt(pose.target)
+    controls?.target.copy(pose.target)
+    frameCamera(
+      perspective,
+      morph.frame,
+      size.width,
+      size.height,
+      pose.hfov,
+      Math.max(0.05, pose.distance * 0.03),
+      t,
+      setup.renderAspect,
+    )
+    perspective.updateProjectionMatrix()
+    // The flat view starts far away: keep the distance haze beyond the world.
+    if (fog) {
+      fog.near = Math.max(setup.fogNear, pose.distance + setup.sceneRadius)
+      fog.far = fog.near + 26
+    }
+  })
 
   useEffect(
     () => () => {

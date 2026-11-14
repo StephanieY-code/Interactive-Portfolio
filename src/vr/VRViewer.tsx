@@ -12,6 +12,7 @@ import { Canvas } from "@react-three/fiber"
 import { XR, createXRStore, useXRSessionModeSupported } from "@react-three/xr"
 import { Component, Suspense, useEffect, useSyncExternalStore } from "react"
 import type { ReactNode } from "react"
+import type { Morph } from "./morph"
 import { WorldScene, preloadWorldModel } from "./WorldScene"
 import type { VRWorld } from "./worlds"
 
@@ -70,7 +71,22 @@ function LoadingStatus({ title }: { title: string }) {
   )
 }
 
-export default function VRViewer({ world }: { world: VRWorld }) {
+/** Tells the page once the world has loaded and is about to be drawn. */
+function Ready({ onReady }: { onReady?: () => void }) {
+  useEffect(() => onReady?.(), [onReady])
+  return null
+}
+
+export default function VRViewer({
+  world,
+  morph,
+  onReady,
+}: {
+  world: VRWorld
+  /** Opening from the cover drawing (see src/vr/morph.ts). */
+  morph?: Morph
+  onReady?: () => void
+}) {
   const vrSupported = useXRSessionModeSupported("immersive-vr")
   const inVR = useSyncExternalStore(subscribe, isInVR)
 
@@ -97,7 +113,8 @@ export default function VRViewer({ world }: { world: VRWorld }) {
         >
           <XR store={xrStore}>
             <Suspense fallback={null}>
-              <WorldScene world={world} />
+              <WorldScene world={world} morph={morph} />
+              <Ready onReady={onReady} />
             </Suspense>
           </XR>
         </Canvas>

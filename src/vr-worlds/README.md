@@ -9,12 +9,17 @@ src/vr-worlds/
   moon/     ← card 3
 ```
 
-On the VR slide, the TV screen shows the world's cover drawing. Clicking it
-plays the drawing's timelapse (`cover.mp4`) on the screen (clicking again
-skips it), then the slide zooms into the screen. Clicking **Step inside**
-(or the screen) opens the 3D world in a big framed panel, like the artwork
-popup, with an **Enter VR** button for Quest visitors. The ✕ or the Escape
-key zooms back out.
+On the VR slide, the TV screen shows the world's cover drawing:
+
+1. **Click:** the drawing's timelapse (`cover.mp4`) plays on the screen
+   (clicking again skips it), then the slide zooms into the screen.
+2. **Click** (or **See it in 3D**): the drawing flips over like a card to
+   show the 3D render (`render.jpg`).
+3. **Click** (or **Step inside**): the render comes to life as the live 3D
+   world, from the same point of view, and grows into a big window with an
+   **Enter VR** button for Quest visitors. Closing plays it backwards.
+
+The ✕ on the slide or the Escape key zooms back out.
 
 Inside a world's folder:
 
@@ -22,6 +27,7 @@ Inside a world's folder:
 | --- | --- |
 | `cover.jpg` (or `.png`, `.webp`) | The 2D drawing shown on the TV screen. |
 | `cover.mp4` (or `.webm`) | Optional. The drawing's timelapse, played once on the TV when it's clicked, before the zoom. Without it, a click zooms straight in. |
+| `render.jpg` (or `.png`, `.webp`) | Optional. A Blender render from the same camera as the drawing; the drawing flips over to it. Without it, the drawing turns straight into the 3D world. |
 | `scene.glb` | The 3D world, made from your Blender file (see below). |
 | `world.json` | Optional settings (see below). |
 
@@ -71,6 +77,12 @@ From a terminal, step 1 is: `pnpm vr:export ~/Desktop/BLENDER/PLANT.blend garden
   (the Ramen Shop uses `Cube.007`, the first stone of the path).
 - **startFacing**: the name of a Blender object VR visitors start facing
   (the Ramen Shop uses `Cube`, the shop itself).
+- **coverCamera**: only needed if you moved the Blender camera after making
+  the render/drawing. It's the camera the cover was made from, so the live
+  3D lines up with it. Copy the numbers from Blender's N panel:
+  `"coverCamera": { "location": [9.246, -8.84, 7.741], "rotation": [70.42, 0, 46.5], "orthographicScale": 12.914 }`
+  (use `"fov"` in degrees instead of `orthographicScale` for a normal
+  camera). Without it, the file's own camera is used.
 - **shadows**: set to `false` if the headset feels choppy (only matters if
   baking ever fails, since baked worlds already have their shadows).
 - **touchable**: groups of Blender objects that glow when pointed at and

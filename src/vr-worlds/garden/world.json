@@ -2,5 +2,10 @@
   "title": "Ramen Shop",
   "scale": 1,
   "startOn": "Cube.007",
-  "startFacing": "Cube"
+  "startFacing": "Cube",
+  "coverCamera": {
+    "location": [9.246, -8.84, 7.741],
+    "rotation": [70.42, 0, 46.5],
+    "orthographicScale": 12.914
+  }
 }
