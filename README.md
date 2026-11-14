@@ -30,9 +30,10 @@ More details: [src/artworks/README.md](src/artworks/README.md)
 
 ## VR worlds (Blender → website → Meta Quest)
 
-The VR slide's TV screen shows a world's cover drawing. Clicking it plays
-the drawing's timelapse, zooms into the screen, and **Step inside** opens a
-3D world made in Blender in a big panel. Visitors can look around on a
+The VR slide's TV screen shows a world's cover drawing. Clicking it zooms
+into the screen, the next click flips the drawing over to its 3D render,
+and the next one brings that render to life as the 3D world made in
+Blender, in a big panel. Visitors can look around on a
 laptop or phone, or press **Enter VR** in a Meta Quest's browser to step
 inside (WebXR).
 

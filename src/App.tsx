@@ -296,15 +296,12 @@ export default function App() {
     stage.style.transform = before.transform
     void stage.offsetWidth // apply it before the transition comes back
     stage.style.transition = before.transition
-    const scale = Math.min((sec.width * 0.92) / s.width, (sec.height * 0.8) / s.height)
+    const scale = Math.min((sec.width * 0.92) / s.width, (sec.height * 0.86) / s.height)
     const dx = sec.left + sec.width / 2 - (s.left + s.width / 2)
-    const dy = sec.top + sec.height * 0.45 - (s.top + s.height / 2)
-    // Where the zoomed screen ends, so "Step inside" can sit just below it.
-    const screenBottom = sec.height * 0.45 + (s.height * scale) / 2
+    const dy = sec.top + sec.height / 2 - (s.top + s.height / 2)
     return {
       transformOrigin: `${s.left - st.left + s.width / 2}px ${s.top - st.top + s.height / 2}px`,
       transform: `translate(${dx}px, ${dy}px) scale(${scale})`,
-      ["--zoomed-screen-bottom" as string]: `${Math.round(screenBottom)}px`,
     }
   }, [])
 
@@ -585,13 +582,12 @@ export default function App() {
         ref={vrRef}
         aria-labelledby="vr-heading"
         data-screen={screenStep}
-        style={
-          zoomStyle && {
-            ["--zoomed-screen-bottom" as string]: (zoomStyle as Record<string, string>)[
-              "--zoomed-screen-bottom"
-            ],
+        onClick={(event) => {
+          // Zoomed in, a click anywhere around the TV zooms back out.
+          if (screenStep !== "idle" && !screenRef.current?.contains(event.target as Node)) {
+            setScreenStep("idle")
           }
-        }
+        }}
       >
         <header className="vr-header">
           <div className="mini-brand vr-brand">
@@ -619,8 +615,10 @@ export default function App() {
             onPointerEnter={() => warmUpWorld(featuredWorld)}
             onFocus={() => warmUpWorld(featuredWorld)}
             aria-label={
-              screenStep === "idle" && featuredWorld.world.coverVideo
-                ? `Watch the ${featuredWorld.world.title} drawing come together`
+              screenStep === "idle"
+                ? featuredWorld.world.coverVideo
+                  ? `Watch the ${featuredWorld.world.title} drawing come together`
+                  : `Look closer at the ${featuredWorld.world.title} drawing`
                 : screenStep === "playing"
                   ? "Skip the timelapse"
                   : featuredWorld.world.render && !showRender
@@ -656,11 +654,6 @@ export default function App() {
                     </span>
                   )}
                 </span>
-                {featuredWorld.world.coverVideo && screenStep !== "zoomed" && (
-                  <span className="vr-screen-hint" aria-hidden="true">
-                    {screenStep === "playing" ? "Skip ›" : "▶\uFE0E Watch"}
-                  </span>
-                )}
               </>
             ) : featuredWorld.world.model ? (
               <>
@@ -683,28 +676,6 @@ export default function App() {
           </button>
         </div>
 
-        {screenStep === "zoomed" && (
-          <>
-            {featuredWorld.world.render && !showRender ? (
-              <button key="flip" className="enter-vr-button vr-step-inside" onClick={nextFromZoom}>
-                <b className="flip-icon" aria-hidden="true">↻</b>
-                See it in 3D
-              </button>
-            ) : (
-              <button key="inside" className="enter-vr-button vr-step-inside" onClick={nextFromZoom}>
-                <i aria-hidden="true" />
-                Step inside
-              </button>
-            )}
-            <button
-              className="lightbox-close vr-zoom-back"
-              onClick={() => setScreenStep("idle")}
-              aria-label="Back"
-            >
-              <i aria-hidden="true" />
-            </button>
-          </>
-        )}
       </section>
 
       {selectedArtwork && (

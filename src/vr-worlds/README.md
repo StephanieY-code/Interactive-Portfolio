@@ -11,15 +11,16 @@ src/vr-worlds/
 
 On the VR slide, the TV screen shows the world's cover drawing:
 
-1. **Click:** the drawing's timelapse (`cover.mp4`) plays on the screen
-   (clicking again skips it), then the slide zooms into the screen.
-2. **Click** (or **See it in 3D**): the drawing flips over like a card to
-   show the 3D render (`render.jpg`).
-3. **Click** (or **Step inside**): the render comes to life as the live 3D
-   world, from the same point of view, and grows into a big window with an
-   **Enter VR** button for Quest visitors. Closing plays it backwards.
+1. **Click:** the slide zooms into the screen. (If the folder has a
+   timelapse, `cover.mp4`, it plays first; clicking again skips it.)
+2. **Click:** the drawing flips over like a card to show the 3D render
+   (`render.jpg`).
+3. **Click:** the render comes to life as the live 3D world, from the same
+   point of view, and grows into a big window with an **Enter VR** button
+   for Quest visitors. Closing plays it backwards.
 
-The ✕ on the slide or the Escape key zooms back out.
+There are no buttons on the slide: clicking around the TV (or pressing
+Escape) zooms back out.
 
 Inside a world's folder:
 
