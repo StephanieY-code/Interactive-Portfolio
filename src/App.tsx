@@ -1,5 +1,14 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import type {
+  CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react"
@@ -76,6 +85,11 @@ const showcaseEntries: GalleryEntry[] =
     ? realArtwork
     : [...entriesFor("2D"), ...entriesFor("3D")]
 
+// The zoom into the VR slide's screen (and back out).
+const ZOOM_TRANSITION =
+  "opacity .75s ease, transform 1.4s cubic-bezier(.65, 0, .35, 1), filter .95s ease"
+const ZOOM_SECONDS = 1.4
+
 // How fast the showcase glides, in pixels per second.
 const SHOWCASE_SPEED = 40
 
@@ -100,6 +114,11 @@ export default function App() {
   const [screenNear, setScreenNear] = useState(false)
   const [screenOnView, setScreenOnView] = useState(false)
   const [screenReady, setScreenReady] = useState(false)
+  // Clicking the screen: "playing" shows the drawing's timelapse, then
+  // "zoomed" zooms into the screen, and one more click steps inside.
+  const [screenStep, setScreenStep] = useState<"idle" | "playing" | "zoomed">("idle")
+  const [zoomStyle, setZoomStyle] = useState<CSSProperties>()
+  const stageRef = useRef<HTMLDivElement>(null)
   const [edgeFade, setEdgeFade] = useState({ left: false, right: false })
   const galleryRef = useRef<HTMLElement>(null)
   const vrRef = useRef<HTMLElement>(null)
@@ -261,17 +280,62 @@ export default function App() {
     }
   }, [])
 
-  // The cover video plays only while the screen is in view (and not behind
-  // the open world, or for visitors who prefer less motion).
-  useEffect(() => {
-    const video = coverVideoRef.current
-    if (!video) return
-    if (screenOnView && !selectedWorld && !prefersReducedMotion()) {
-      video.play().catch(() => {})
-    } else {
-      video.pause()
+  // The move and scale that bring the screen to the middle of the slide,
+  // nearly filling it. Measured with the zoom briefly switched off.
+  const measureZoom = useCallback((): CSSProperties => {
+    const stage = stageRef.current
+    const screen = screenRef.current
+    const section = vrRef.current
+    if (!stage || !screen || !section) return {}
+    const before = { transform: stage.style.transform, transition: stage.style.transition }
+    stage.style.transition = "none"
+    stage.style.transform = "none"
+    const s = screen.getBoundingClientRect()
+    const st = stage.getBoundingClientRect()
+    const sec = section.getBoundingClientRect()
+    stage.style.transform = before.transform
+    void stage.offsetWidth // apply it before the transition comes back
+    stage.style.transition = before.transition
+    const scale = Math.min((sec.width * 0.92) / s.width, (sec.height * 0.8) / s.height)
+    const dx = sec.left + sec.width / 2 - (s.left + s.width / 2)
+    const dy = sec.top + sec.height * 0.45 - (s.top + s.height / 2)
+    // Where the zoomed screen ends, so "Step inside" can sit just below it.
+    const screenBottom = sec.height * 0.45 + (s.height * scale) / 2
+    return {
+      transformOrigin: `${s.left - st.left + s.width / 2}px ${s.top - st.top + s.height / 2}px`,
+      transform: `translate(${dx}px, ${dy}px) scale(${scale})`,
+      ["--zoomed-screen-bottom" as string]: `${Math.round(screenBottom)}px`,
     }
-  }, [screenNear, screenOnView, selectedWorld])
+  }, [])
+
+  // Zoom in (and keep the zoom right if the window changes size)...
+  useLayoutEffect(() => {
+    if (screenStep !== "zoomed") return
+    setZoomStyle({ ...measureZoom(), transition: ZOOM_TRANSITION })
+    const onResize = () => setZoomStyle({ ...measureZoom(), transition: "none" })
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [screenStep, measureZoom])
+
+  // ...and back out, then hand the slide back to its usual styles.
+  useEffect(() => {
+    if (screenStep !== "idle") return
+    coverVideoRef.current?.pause()
+    setZoomStyle((zoom) =>
+      zoom && {
+        transformOrigin: zoom.transformOrigin,
+        transform: "translate(0px, 0px) scale(1)",
+        transition: ZOOM_TRANSITION,
+      },
+    )
+    const timer = window.setTimeout(() => setZoomStyle(undefined), ZOOM_SECONDS * 1000)
+    return () => window.clearTimeout(timer)
+  }, [screenStep])
+
+  // Scrolling away from the slide resets the screen.
+  useEffect(() => {
+    if (!screenOnView && !selectedWorld) setScreenStep("idle")
+  }, [screenOnView, selectedWorld])
 
   useEffect(() => {
     const slides = document.querySelectorAll<HTMLElement>(".slide-section")
@@ -289,15 +353,16 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!selectedArtwork && !selectedWorld) return
+    if (!selectedArtwork && !selectedWorld && screenStep === "idle") return
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       if (selectedArtwork) setSelectedArtwork(null)
-      else closeWorld()
+      else if (selectedWorld) closeWorld()
+      else setScreenStep("idle")
     }
     window.addEventListener("keydown", closeOnEscape)
     return () => window.removeEventListener("keydown", closeOnEscape)
-  }, [selectedArtwork, selectedWorld])
+  }, [selectedArtwork, selectedWorld, screenStep])
 
   const scrollTo = (target: "gallery" | "vr") => {
     const ref = target === "gallery" ? galleryRef : vrRef
@@ -313,6 +378,35 @@ export default function App() {
   const closeWorld = () => {
     if (document.fullscreenElement) document.exitFullscreen?.()
     setSelectedWorld(null)
+    setScreenStep("idle") // zooms back out to the slide
+  }
+
+  const openFeaturedWorld = () => {
+    warmUpWorld(featuredWorld)
+    setScreenReady(false)
+    setSelectedWorld(featuredWorld)
+  }
+
+  const zoomIntoScreen = () => {
+    setScreenStep("zoomed")
+    vrRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+
+  // Click 1 plays the timelapse (a click while it plays skips it), then the
+  // slide zooms into the screen; click 2 steps into the 3D world. A world
+  // with no cover (a live view on the screen) opens straight away.
+  const clickScreen = () => {
+    const { cover, coverVideo } = featuredWorld.world
+    warmUpWorld(featuredWorld) // the 3D world downloads during the video
+    if ((!cover && !coverVideo) || screenStep === "zoomed") return openFeaturedWorld()
+    const video = coverVideoRef.current
+    if (screenStep === "playing" || !video) {
+      video?.pause()
+      return zoomIntoScreen()
+    }
+    video.currentTime = 0
+    setScreenStep("playing")
+    video.play().catch(zoomIntoScreen)
   }
 
   const toggleWorldFullscreen = () => {
@@ -474,6 +568,14 @@ export default function App() {
         className="vr-section has-backdrop slide-section"
         ref={vrRef}
         aria-labelledby="vr-heading"
+        data-screen={screenStep}
+        style={
+          zoomStyle && {
+            ["--zoomed-screen-bottom" as string]: (zoomStyle as Record<string, string>)[
+              "--zoomed-screen-bottom"
+            ],
+          }
+        }
       >
         <header className="vr-header">
           <div className="mini-brand vr-brand">
@@ -486,7 +588,7 @@ export default function App() {
         </header>
 
         {/* The painted slide; the world's cover sits inside its cream screen. */}
-        <div className="vr-stage">
+        <div className="vr-stage" ref={stageRef} style={zoomStyle}>
           <img
             className="vr-backdrop"
             src={vrBackdrop}
@@ -497,14 +599,16 @@ export default function App() {
           <button
             ref={screenRef}
             className="vr-screen"
-            onClick={() => {
-              warmUpWorld(featuredWorld)
-              setScreenReady(false)
-              setSelectedWorld(featuredWorld)
-            }}
+            onClick={clickScreen}
             onPointerEnter={() => warmUpWorld(featuredWorld)}
             onFocus={() => warmUpWorld(featuredWorld)}
-            aria-label={`Open the ${featuredWorld.world.title} world`}
+            aria-label={
+              screenStep === "idle" && featuredWorld.world.coverVideo
+                ? `Watch the ${featuredWorld.world.title} drawing come together`
+                : screenStep === "playing"
+                  ? "Skip the timelapse"
+                  : `Step inside the ${featuredWorld.world.title} world`
+            }
           >
             {featuredWorld.world.cover || featuredWorld.world.coverVideo ? (
               <>
@@ -514,15 +618,19 @@ export default function App() {
                 {featuredWorld.world.coverVideo && screenNear && (
                   <video
                     ref={coverVideoRef}
-                    className="vr-cover"
+                    className="vr-cover vr-timelapse"
                     src={featuredWorld.world.coverVideo}
-                    poster={featuredWorld.world.cover}
                     muted
-                    loop
                     playsInline
                     preload="auto"
+                    onEnded={zoomIntoScreen}
                     aria-hidden="true"
                   />
+                )}
+                {featuredWorld.world.coverVideo && screenStep !== "zoomed" && (
+                  <span className="vr-screen-hint" aria-hidden="true">
+                    {screenStep === "playing" ? "Skip ›" : "▶\uFE0E Watch"}
+                  </span>
                 )}
               </>
             ) : featuredWorld.world.model ? (
@@ -546,6 +654,21 @@ export default function App() {
           </button>
         </div>
 
+        {screenStep === "zoomed" && (
+          <>
+            <button className="enter-vr-button vr-step-inside" onClick={openFeaturedWorld}>
+              <i aria-hidden="true" />
+              Step inside
+            </button>
+            <button
+              className="lightbox-close vr-zoom-back"
+              onClick={() => setScreenStep("idle")}
+              aria-label="Back"
+            >
+              <i aria-hidden="true" />
+            </button>
+          </>
+        )}
       </section>
 
       {selectedArtwork && (

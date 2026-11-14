@@ -9,16 +9,19 @@ src/vr-worlds/
   moon/     ← card 3
 ```
 
-On the VR slide, the TV screen shows the world's cover (drawing or video).
-Clicking it opens the 3D world in a big framed panel, like the artwork
-popup, with an **Enter VR** button for Quest visitors.
+On the VR slide, the TV screen shows the world's cover drawing. Clicking it
+plays the drawing's timelapse (`cover.mp4`) on the screen (clicking again
+skips it), then the slide zooms into the screen. Clicking **Step inside**
+(or the screen) opens the 3D world in a big framed panel, like the artwork
+popup, with an **Enter VR** button for Quest visitors. The ✕ or the Escape
+key zooms back out.
 
 Inside a world's folder:
 
 | File | What it is |
 | --- | --- |
 | `cover.jpg` (or `.png`, `.webp`) | The 2D drawing shown on the TV screen. |
-| `cover.mp4` (or `.webm`) | Optional. A video (like your drawing timelapse) that plays, muted and looping, on the TV instead of the drawing. The drawing shows while it loads. |
+| `cover.mp4` (or `.webm`) | Optional. The drawing's timelapse, played once on the TV when it's clicked, before the zoom. Without it, a click zooms straight in. |
 | `scene.glb` | The 3D world, made from your Blender file (see below). |
 | `world.json` | Optional settings (see below). |
 
@@ -35,7 +38,9 @@ world with no cover shows a live 3D view on the TV instead.
 2. **Add the cover:** put the card's drawing in the same folder as
    `cover.jpg` (delete the old cover if it has a different ending, like
    `cover.webp`). For a timelapse, also add `cover.mp4`. Keep the video
-   short and small (under about 10 MB) so the page stays quick.
+   small (under about 5 MB) so it starts quickly; it only plays inside the
+   TV, so 960 x 720 is plenty. Its last frame should be the finished
+   drawing, since the drawing takes over when the zoom starts.
 3. **Preview (optional):** run `pnpm dev` and open http://localhost:8443.
 4. **Publish:** double-click **`Publish Artwork.command`**. The live site
    updates about a minute later.

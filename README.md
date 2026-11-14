@@ -30,10 +30,11 @@ More details: [src/artworks/README.md](src/artworks/README.md)
 
 ## VR worlds (Blender → website → Meta Quest)
 
-The VR slide's TV screen shows a world's cover drawing (or timelapse video).
-Clicking it opens a 3D world made in Blender in a big panel. Visitors can
-look around on a laptop or phone, or press **Enter VR** in a Meta Quest's
-browser to step inside (WebXR).
+The VR slide's TV screen shows a world's cover drawing. Clicking it plays
+the drawing's timelapse, zooms into the screen, and **Step inside** opens a
+3D world made in Blender in a big panel. Visitors can look around on a
+laptop or phone, or press **Enter VR** in a Meta Quest's browser to step
+inside (WebXR).
 
 1. Double-click **`Export VR World.command`**, pick the `.blend` file and the
    card (garden, clouds, or moon).

@@ -2049,6 +2049,70 @@ em {
   object-fit: cover;
 }
 
+/* Click 1: the drawing's timelapse plays on the screen. */
+.vr-screen .vr-timelapse {
+  opacity: 0;
+  transition: opacity .4s ease;
+}
+
+.vr-section[data-screen="playing"] .vr-timelapse {
+  opacity: 1;
+}
+
+.vr-screen-hint {
+  position: absolute;
+  z-index: 2;
+  right: 4%;
+  bottom: 5%;
+  padding: .3em .85em;
+  color: var(--blue-dark);
+  border-radius: 999px;
+  background: rgb(255 250 240 / .88);
+  box-shadow: 2px 3px 0 rgb(17 27 85 / .18);
+  font-family: 'Fraunces', serif;
+  font-size: clamp(.7rem, 1vw, .9rem);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* Then the slide zooms into the screen (the move itself is set by App.tsx),
+   and "Step inside" opens the 3D world. */
+.vr-section[data-screen="zoomed"] .vr-header {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.vr-section[data-screen="zoomed"] .vr-screen:hover,
+.vr-section[data-screen="zoomed"] .vr-screen:focus-visible {
+  filter: none;
+  transform: none;
+}
+
+.vr-step-inside {
+  position: absolute;
+  z-index: 4;
+  /* Just below the zoomed screen, but always on the slide. */
+  top: min(
+    calc(var(--zoomed-screen-bottom, 85svh) + 1.25rem),
+    calc(100% - 4.5rem - env(safe-area-inset-bottom))
+  );
+  left: 50%;
+  translate: -50% 0;
+  white-space: nowrap;
+  animation: zoomUiIn .5s 1.1s both;
+}
+
+.vr-zoom-back.lightbox-close {
+  z-index: 4;
+  top: clamp(1rem, 2.5vw, 2rem);
+  right: clamp(1rem, 2.5vw, 2rem);
+  animation: zoomUiIn .5s 1.1s both;
+}
+
+@keyframes zoomUiIn {
+  from { opacity: 0; }
+}
+
 .vr-screen-status {
   position: absolute;
   inset: 0;

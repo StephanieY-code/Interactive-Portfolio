@@ -1,7 +1,7 @@
 // Finds each VR world in src/vr-worlds/<world>/ automatically:
 //   cover.jpg (or .png/.webp)  the 2D drawing shown on the VR card
-//   cover.mp4 (or .webm/.mov)  optional video (like a drawing timelapse)
-//                              that plays on the card instead of the drawing
+//   cover.mp4 (or .webm/.mov)  optional video (like the drawing's timelapse)
+//                              that plays on the screen when it's clicked
 //   scene.glb                  the 3D world, made by "Export VR World.command"
 //   world.json                 optional settings (see src/vr-worlds/README.md)
 // A card with no scene.glb keeps the simple animated placeholder world.
