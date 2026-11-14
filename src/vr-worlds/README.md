@@ -49,6 +49,8 @@ From a terminal, step 1 is: `pnpm vr:export ~/Desktop/BLENDER/PLANT.blend garden
   "title": "Garden",
   "scale": 0.4,
   "startDistance": 3,
+  "startOn": "Cube.007",
+  "startFacing": "Cube",
   "shadows": true,
   "touchable": [
     { "name": "Plant", "objects": ["Cube.007", "BézierCurve*"] }
@@ -60,7 +62,12 @@ From a terminal, step 1 is: `pnpm vr:export ~/Desktop/BLENDER/PLANT.blend garden
 - **scale**: size multiplier. In VR, 1 Blender unit = 1 real meter. The
   garden's plant is about 4 units tall, so `0.4` makes it a 1.6 m houseplant.
 - **startDistance**: how many meters from the main subject visitors start.
-- **shadows**: set to `false` if the headset feels choppy.
+- **startOn**: the name of a Blender object VR visitors start standing on
+  (the Ramen Shop uses `Cube.007`, the first stone of the path).
+- **startFacing**: the name of a Blender object VR visitors start facing
+  (the Ramen Shop uses `Cube`, the shop itself).
+- **shadows**: set to `false` if the headset feels choppy (only matters if
+  baking ever fails, since baked worlds already have their shadows).
 - **touchable**: groups of Blender objects that glow when pointed at and
   sway when clicked or pinched. Use the names from Blender's Outliner; a
   `*` at the end matches the start of a name (`BézierCurve*` matches
@@ -85,13 +92,17 @@ From a terminal, step 1 is: `pnpm vr:export ~/Desktop/BLENDER/PLANT.blend garden
   so bake them to an image texture.
 - **Geometry Nodes:** scattered copies (like leaves on a tree) are turned
   into real geometry for the export, so they show up on the web.
-- **Lights:** point, spot, sun, and area lights carry over with their color
-  and strength (including Exposure). Shadows come from spot, sun, and area
-  lights (an area light becomes a soft spotlight so it can cast shadows).
+- **Lighting is baked:** during the export, Cycles works out the light on
+  every surface (bounced light and soft shadows included) and saves it into
+  the model, so the web looks like a Cycles render of your scene, even if
+  the file is set to EEVEE. It takes about a minute. Big flat faces get
+  split into smaller ones so the light has enough detail, and thin parts
+  like leaves get light on both sides. If you change lights, export again.
 - **Camera:** a perspective or orthographic camera both work. The web view
   starts from the same angle and shows the same width of the scene.
-- **Color:** Blender's color look (AgX or Standard, in Render Properties →
-  Color Management) carries over.
+- **Color:** Blender's color look (AgX, Filmic, Standard, plus its Look
+  and Exposure, in Render Properties → Color Management) carries over
+  exactly, as a small color table saved in the model.
 - **Animations:** animations on touchable objects play when they're touched;
   all other animations loop.
 - **The floor:** visitors can teleport anywhere on the ground (height 0)

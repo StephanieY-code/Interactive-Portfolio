@@ -1,0 +1,2 @@
+# Store the Draco decoder as regular files, not Git LFS, so the site can serve it.
+* -filter -diff -merge -text

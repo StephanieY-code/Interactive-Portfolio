@@ -1,5 +1,6 @@
 {
   "title": "Ramen Shop",
   "scale": 1,
-  "startDistance": 6
+  "startOn": "Cube.007",
+  "startFacing": "Cube"
 }

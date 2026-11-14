@@ -19,6 +19,10 @@ export type WorldSettings = {
   scale?: number
   /** How far (in real meters) visitors start from what the camera looks at. */
   startDistance?: number
+  /** Blender object VR visitors start standing on, like "Cube.007". */
+  startOn?: string
+  /** Blender object VR visitors start facing, like "Cube". */
+  startFacing?: string
   /** Turn off light shadows if the headset feels choppy. */
   shadows?: boolean
   /** Groups of objects that sway when pointed at and clicked/pinched. */

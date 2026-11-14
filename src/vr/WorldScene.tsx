@@ -32,10 +32,19 @@ type LightRecord = {
 /** Blender's color look (Render Properties > Color Management). */
 type ColorView = { transform?: string; exposure?: number }
 
+/** Blender's color look as a 3D color table, made by export_world.py. */
+type ViewLut = { size: number; min: number; max: number; data: string }
+
+// Compressed models are unpacked by the Draco decoder in public/draco/.
+const DRACO_PATH = `${import.meta.env.BASE_URL}draco/`
+
 type PreparedWorld = {
   background: THREE.Color
-  /** The background as a tiny image, so it gets the same color look. */
-  backgroundTexture: THREE.Texture
+  /** What's drawn behind the world: a plain color already in Blender's
+   * color look, or a tiny image that the web's color look is applied to. */
+  backdrop: THREE.Color | THREE.Texture
+  /** Lighting was baked by Cycles, so no extra world light is added. */
+  baked: boolean
   toneMapping: THREE.ToneMapping
   toneMappingExposure: number
   fogNear: number
@@ -221,6 +230,126 @@ function makeTouchables(
   return pivots
 }
 
+const findObject = (scene: THREE.Object3D, name: string) => {
+  let found: THREE.Object3D | undefined
+  scene.traverse((o) => {
+    if (!found && nameMatches(o.name, name)) found = o
+  })
+  if (!found) console.warn(`[VR] No object named "${name}" in the world.`)
+  return found
+}
+
+/** A plain material showing its color times the light Cycles baked into
+ * the model's vertex colors. */
+function bakedMaterial(source: THREE.Material, twoSided: boolean): THREE.Material {
+  const lit = source as THREE.MeshStandardMaterial
+  const material = new THREE.MeshBasicMaterial({
+    name: source.name,
+    color: lit.color?.clone() ?? new THREE.Color(1, 1, 1),
+    map: lit.map ?? null,
+    alphaMap: lit.alphaMap ?? null,
+    transparent: source.transparent,
+    opacity: source.opacity,
+    alphaTest: source.alphaTest,
+    side: source.side,
+    // See-through glass has no light of its own baked on it.
+    vertexColors: !source.transparent,
+  })
+  const glow = lit.emissive?.clone().multiplyScalar(lit.emissiveIntensity ?? 1)
+  if (glow && glow.r + glow.g + glow.b > 0) material.userData.glow = glow
+  if (twoSided && !source.transparent) material.userData.backLight = true
+  return material
+}
+
+/** Blender's color table as a 3D texture the graphics card can look up. */
+function lutTexture(lut: ViewLut) {
+  const rgb = Uint8Array.from(atob(lut.data), (c) => c.charCodeAt(0))
+  const rgba = new Uint8Array((rgb.length / 3) * 4)
+  for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+    rgba[j] = rgb[i]
+    rgba[j + 1] = rgb[i + 1]
+    rgba[j + 2] = rgb[i + 2]
+    rgba[j + 3] = 255
+  }
+  const texture = new THREE.Data3DTexture(rgba, lut.size, lut.size, lut.size)
+  texture.format = THREE.RGBAFormat
+  texture.type = THREE.UnsignedByteType
+  texture.minFilter = texture.magFilter = THREE.LinearFilter
+  texture.wrapS = texture.wrapT = texture.wrapR = THREE.ClampToEdgeWrapping
+  texture.unpackAlignment = 1
+  texture.needsUpdate = true
+  return texture
+}
+
+const glsl = (n: number) => (Number.isInteger(n) ? `${n}.0` : `${n}`)
+
+/** Shader changes for one material:
+ *  - backLight: a thin surface seen from behind shows its back's baked light.
+ *  - glow: a glowing (emission) color added on top of baked light.
+ *  - Blender's exact color look, by looking each pixel's light value up in
+ *    Blender's color table (instead of the web's own color look). */
+function customizeShader(
+  material: THREE.Material,
+  view?: { table: THREE.Data3DTexture; lut: ViewLut },
+) {
+  const glow = material.userData.glow as THREE.Color | undefined
+  const backLight = material.userData.backLight === true
+  if (!view && !glow && !backLight) return
+  material.onBeforeCompile = (shader) => {
+    if (backLight) {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          "#include <color_pars_vertex>",
+          "#include <color_pars_vertex>\nattribute vec4 color_1;\nvarying vec3 vBackLight;",
+        )
+        .replace("#include <color_vertex>", "#include <color_vertex>\nvBackLight = color_1.rgb;")
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <color_pars_fragment>", "#include <color_pars_fragment>\nvarying vec3 vBackLight;")
+        .replace(
+          "#include <color_fragment>",
+          `#if defined( USE_COLOR_ALPHA )
+            diffuseColor *= gl_FrontFacing ? vColor : vec4( vBackLight, vColor.a );
+          #elif defined( USE_COLOR )
+            diffuseColor.rgb *= gl_FrontFacing ? vColor : vBackLight;
+          #endif`,
+        )
+    }
+    if (glow) {
+      shader.uniforms.bakedGlow = { value: glow }
+      shader.fragmentShader = shader.fragmentShader
+        .replace("void main() {", "uniform vec3 bakedGlow;\nvoid main() {")
+        .replace("#include <opaque_fragment>", "#include <opaque_fragment>\ngl_FragColor.rgb += bakedGlow;")
+    }
+    if (view) {
+      const { table, lut } = view
+      shader.uniforms.blenderView = { value: table }
+      shader.fragmentShader = shader.fragmentShader
+        .replace("void main() {", "uniform sampler3D blenderView;\nvoid main() {")
+        .replace(
+          "#include <tonemapping_fragment>",
+          `{
+            vec3 stops = (log2(max(gl_FragColor.rgb, vec3(1e-10))) - ${glsl(lut.min)}) / ${glsl(lut.max - lut.min)};
+            vec3 cell = clamp(stops, 0.0, 1.0) * ${glsl((lut.size - 1) / lut.size)} + ${glsl(0.5 / lut.size)};
+            vec3 screen = texture(blenderView, cell).rgb;
+            gl_FragColor.rgb = mix(
+              pow((screen + 0.055) / 1.055, vec3(2.4)),
+              screen / 12.92,
+              vec3(lessThanEqual(screen, vec3(0.04045)))
+            );
+          }`,
+        )
+    }
+  }
+  material.customProgramCacheKey = () =>
+    [
+      "blender",
+      backLight ? "back" : "",
+      glow ? "glow" : "",
+      view ? `view-${view.lut.size}-${view.lut.min}-${view.lut.max}` : "",
+    ].join("-")
+  material.needsUpdate = true
+}
+
 function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
   const cached = prepared.get(gltf)
   if (cached) return cached
@@ -232,17 +361,37 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
     lights?: LightRecord[]
     background?: Vec3
     view?: ColorView
+    baked?: boolean
+    viewLut?: ViewLut
+    backgroundOnScreen?: Vec3
   }
+  const baked = extras.baked === true
   scene.updateMatrixWorld(true)
 
   const meshes: THREE.Mesh[] = []
   scene.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh)
   })
+  // Baked worlds: Cycles saved the light on every surface in the model, so
+  // each surface just shows its color times that light (no live lights or
+  // shadows to work out, which is also much lighter for a headset).
+  // Thin surfaces like leaves also have the light on their back side.
+  const bakedVersions = new Map<string, THREE.Material>()
   for (const mesh of meshes) {
+    if (baked && mesh.geometry.getAttribute("color")) {
+      const twoSided = Boolean(mesh.geometry.getAttribute("color_1"))
+      const swap = (m: THREE.Material) => {
+        const key = `${m.uuid}:${twoSided}`
+        if (!bakedVersions.has(key)) bakedVersions.set(key, bakedMaterial(m, twoSided))
+        return bakedVersions.get(key)!
+      }
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map(swap)
+        : swap(mesh.material)
+    }
     const seeThrough = materialsOf(mesh).some((m) => m.transparent)
-    mesh.castShadow = shadows && !seeThrough // light passes through glass
-    mesh.receiveShadow = shadows
+    mesh.castShadow = shadows && !baked && !seeThrough // light passes through glass
+    mesh.receiveShadow = shadows && !baked
     if (seeThrough) materialsOf(mesh).forEach((m) => (m.depthWrite = false))
   }
 
@@ -300,37 +449,66 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
 
   // Blender's color look: AgX (Blender's default) softens bright lights the
   // same way on the web; Standard shows colors as they are.
+  // With a color table from Blender, every surface gets Blender's exact
+  // color look (see customizeShader), and the background is already in it.
   const view = extras.view ?? {}
   const exposure = view.exposure ?? 0
-  const toneMapping = view.transform?.startsWith("AgX")
-    ? THREE.AgXToneMapping
-    : view.transform === "Khronos PBR Neutral"
-      ? THREE.NeutralToneMapping
-      : exposure !== 0
-        ? THREE.LinearToneMapping
-        : THREE.NoToneMapping
+  const lut = extras.viewLut
+  const toneMapping = lut
+    ? THREE.NoToneMapping
+    : view.transform?.startsWith("AgX")
+      ? THREE.AgXToneMapping
+      : view.transform === "Khronos PBR Neutral"
+        ? THREE.NeutralToneMapping
+        : exposure !== 0
+          ? THREE.LinearToneMapping
+          : THREE.NoToneMapping
   const background = new THREE.Color(...(extras.background ?? [0.05, 0.05, 0.05]))
-  const backgroundTexture = new THREE.DataTexture(
-    new Float32Array([background.r, background.g, background.b, 1]),
-    1,
-    1,
-    THREE.RGBAFormat,
-    THREE.FloatType,
-  )
-  backgroundTexture.colorSpace = THREE.LinearSRGBColorSpace
-  backgroundTexture.needsUpdate = true
+  let backdrop: THREE.Color | THREE.Texture
+  if (lut && extras.backgroundOnScreen) {
+    backdrop = new THREE.Color().setRGB(
+      ...extras.backgroundOnScreen,
+      THREE.SRGBColorSpace,
+    )
+  } else {
+    const texture = new THREE.DataTexture(
+      new Float32Array([background.r, background.g, background.b, 1]),
+      1,
+      1,
+      THREE.RGBAFormat,
+      THREE.FloatType,
+    )
+    texture.colorSpace = THREE.LinearSRGBColorSpace
+    texture.needsUpdate = true
+    backdrop = texture
+  }
 
-  // VR start point: a "VR_Spawn" empty from Blender, or a few steps back from
-  // what the camera looks at. Visitors face that spot.
+  // VR start point: a "VR_Spawn" empty from Blender; or standing on top of
+  // the object named in world.json's "startOn"; or a few steps back from
+  // what the camera looks at. Visitors face "startFacing" (an object's
+  // name), or else what the camera looks at.
   const flat = new THREE.Vector3(cameraDirection.x, 0, cameraDirection.z)
   if (flat.lengthSq() < 1e-6) flat.set(0, 0, -1)
   flat.normalize()
   const spawnNode = scene.getObjectByName("VR_Spawn")
-  const spawn = spawnNode
-    ? spawnNode.getWorldPosition(new THREE.Vector3())
-    : target.clone().addScaledVector(flat, -(settings.startDistance ?? 3) / scale)
-  spawn.y = spawnNode ? spawn.y : 0
-  const facing = new THREE.Vector3(target.x - spawn.x, 0, target.z - spawn.z)
+  const startOn = settings.startOn ? findObject(scene, settings.startOn) : undefined
+  let spawn: THREE.Vector3
+  if (spawnNode) {
+    spawn = spawnNode.getWorldPosition(new THREE.Vector3())
+  } else if (startOn) {
+    const box = new THREE.Box3().setFromObject(startOn)
+    spawn = box.getCenter(new THREE.Vector3()).setY(Math.max(0, box.max.y))
+  } else {
+    spawn = target.clone().addScaledVector(flat, -(settings.startDistance ?? 3) / scale)
+    spawn.y = 0
+  }
+  const faceObject = settings.startFacing
+    ? findObject(scene, settings.startFacing)
+    : undefined
+  const lookAt = faceObject
+    ? new THREE.Box3().setFromObject(faceObject).getCenter(new THREE.Vector3())
+    : target
+  const facing = new THREE.Vector3(lookAt.x - spawn.x, 0, lookAt.z - spawn.z)
   if (facing.lengthSq() < 1e-6) facing.copy(flat)
   facing.normalize()
 
@@ -362,13 +540,29 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
     else loopClips.push(clip)
   }
 
+  // After the touchables made their own copies of materials.
+  const lookup = lut ? { table: lutTexture(lut), lut } : undefined
+  const done = new Set<THREE.Material>()
+  for (const root of [scene, ...touchables]) {
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh
+      if (!mesh.isMesh) return
+      for (const material of materialsOf(mesh)) {
+        if (done.has(material)) continue
+        done.add(material)
+        customizeShader(material, lookup)
+      }
+    })
+  }
+
   const result: PreparedWorld = {
     background,
-    backgroundTexture,
+    backdrop,
+    baked,
     toneMapping,
-    toneMappingExposure: 2 ** exposure,
+    toneMappingExposure: lut ? 1 : 2 ** exposure,
     fogNear,
-    lights: makeLights(extras.lights ?? [], scale, shadows),
+    lights: makeLights(extras.lights ?? [], scale, shadows && !baked),
     touchables,
     touchClips,
     loopClips,
@@ -392,10 +586,16 @@ function setHighlight(pivot: THREE.Object3D, on: boolean) {
     if (!mesh.isMesh) return
     for (const material of materialsOf(mesh)) {
       const lit = material as THREE.MeshStandardMaterial
-      if (!lit.emissive) continue
-      lit.userData.restingEmissive ??= lit.emissive.clone()
-      if (on) lit.emissive.set(0x5c4520)
-      else lit.emissive.copy(lit.userData.restingEmissive)
+      if (lit.emissive) {
+        lit.userData.restingEmissive ??= lit.emissive.clone()
+        if (on) lit.emissive.set(0x5c4520)
+        else lit.emissive.copy(lit.userData.restingEmissive)
+      } else if (lit.color) {
+        // Plain (baked) materials have no glow: brighten the color instead.
+        lit.userData.restingColor ??= lit.color.clone()
+        lit.color.copy(lit.userData.restingColor)
+        if (on) lit.color.multiplyScalar(1.6)
+      }
     }
   })
 }
@@ -427,7 +627,7 @@ export function WorldScene({
   world: VRWorld
   preview?: boolean
 }) {
-  const gltf = useGLTF(world.model!) as unknown as GLTF
+  const gltf = useGLTF(world.model!, DRACO_PATH) as unknown as GLTF
   const setup = useMemo(
     () => prepareWorld(gltf, world.settings),
     [gltf, world.settings],
@@ -555,10 +755,17 @@ export function WorldScene({
 
   return (
     <>
-      <primitive attach="background" object={setup.backgroundTexture} />
-      <fog attach="fog" args={[setup.background, setup.fogNear, setup.fogNear + 26]} />
+      <primitive attach="background" object={setup.backdrop} />
+      <fog
+        attach="fog"
+        args={[
+          setup.backdrop instanceof THREE.Color ? setup.backdrop : setup.background,
+          setup.fogNear,
+          setup.fogNear + 26,
+        ]}
+      />
       {/* Blender's world color lights everything a little, like in EEVEE. */}
-      <ambientLight color={setup.background} intensity={Math.PI} />
+      {!setup.baked && <ambientLight color={setup.background} intensity={Math.PI} />}
 
       <group scale={scale}>
         <primitive object={gltf.scene} />
@@ -631,4 +838,4 @@ function drift(camera: THREE.Camera, setup: PreparedWorld, time: number) {
   camera.lookAt(setup.target)
 }
 
-export const preloadWorldModel = (url: string) => useGLTF.preload(url)
+export const preloadWorldModel = (url: string) => useGLTF.preload(url, DRACO_PATH)

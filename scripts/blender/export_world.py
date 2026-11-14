@@ -16,27 +16,48 @@ What it does on a temporary copy of the scene in memory:
     with no material get Blender's default grey (the web would show metal).
   * Textures larger than 2048 px are scaled down, and all are saved as WebP,
     so they're light enough for a Meta Quest.
-  * Lights are written into the file the way Blender renders them (color,
-    power x 2^exposure, cone, shadows), including Area lights, which the
-    standard web format can't hold. The viewer rebuilds them from this.
-  * Saves Blender's color look (AgX or Standard) so the web matches it.
+  * Cycles works out the light on every surface (bounced light and soft
+    shadows included) and saves it in the model ("baking"), so the web looks
+    like a Cycles render of your scene. Big flat faces are split into
+    smaller ones first so shadows and pools of light have enough detail, and
+    thin surfaces like leaves get light on both sides.
+  * Lights are also written into the file the way Blender renders them
+    (color, power x 2^exposure, cone, shadows), so the viewer can light the
+    scene live if baking ever fails.
+  * Saves Blender's color look (AgX, Filmic, its Look and Exposure) as a
+    small color table, so the web shows colors exactly like Blender.
   * Prints a short report: size, triangle count, and any warnings.
 """
 
+import base64
 import json
 import math
 import os
 import struct
 import sys
+import time
 
+import bmesh
 import bpy
 from mathutils import Vector
 
 MAX_TEXTURE = 2048
 TRIANGLE_BUDGET = 300_000
+# Baking: light samples per point, and the longest edge (in meters) a face
+# may have so the saved light has enough detail.
+BAKE_SAMPLES = 256
+BAKE_DETAIL = 0.45
+BAKE_ATTRIBUTE = "VRLight"
+BAKE_BACK_ATTRIBUTE = "VRLightBack"
+# The color table: 33 x 33 x 33 steps over Blender's AgX range of light
+# (log2 of the light value, 16.5 stops).
+LUT_SIZE = 33
+LUT_RANGE = (-12.47393, 4.026069)
 
 out_path = sys.argv[sys.argv.index("--") + 1]
 warnings = []
+# Baking always uses Cycles (in memory), so remember the file's own engine.
+render_engine = bpy.context.scene.render.engine
 
 
 def surface_source(material):
@@ -239,6 +260,186 @@ def realize_instances():
                 group.links.new(realize.outputs[0], socket)
 
 
+def bakeable_objects():
+    return [
+        ob
+        for ob in bpy.context.scene.objects
+        if ob.visible_get() and ob.type in {"MESH", "CURVE", "SURFACE", "META", "FONT"}
+    ]
+
+
+def refine(ob, max_edge):
+    """Splits faces until no edge is longer than max_edge (in meters).
+    Returns True for thin, open surfaces (like leaves), which are seen from
+    both sides and so get light baked on both sides."""
+    scale = max(abs(v) for v in ob.matrix_world.to_scale()) or 1.0
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    thin = sum(1 for e in bm.edges if e.is_boundary) >= 0.3 * max(1, len(bm.edges))
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    for _ in range(8):
+        long_edges = [e for e in bm.edges if e.calc_length() * scale > max_edge]
+        if not long_edges:
+            break
+        bmesh.ops.subdivide_edges(bm, edges=long_edges, cuts=1, use_grid_fill=True)
+        bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 3])
+    bm.to_mesh(ob.data)
+    bm.free()
+    return thin
+
+
+def use_gpu():
+    try:
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+        for kind in ("METAL", "OPTIX", "CUDA", "HIP", "ONEAPI"):
+            try:
+                prefs.compute_device_type = kind
+            except TypeError:
+                continue
+            prefs.get_devices()
+            gpus = [d for d in prefs.devices if d.type != "CPU"]
+            if gpus:
+                for device in prefs.devices:
+                    device.use = True
+                bpy.context.scene.cycles.device = "GPU"
+                return
+    except Exception:
+        pass
+
+
+def bake_lighting():
+    """Cycles works out the light falling on every surface (direct light,
+    bounced light, and shadows) and saves it as a color on each corner of
+    every face. The web multiplies it with each material's color. This is
+    done for EEVEE scenes too (only Cycles can bake)."""
+    try:
+        return bake_with_cycles()
+    except Exception as error:
+        warnings.append(f"Couldn't bake the lighting ({error}); the web uses live lights.")
+        return 0.0
+
+
+def bake_with_cycles():
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    started = time.time()
+    objects = bakeable_objects()
+    view_layer = bpy.context.view_layer
+    for ob in view_layer.objects:
+        ob.select_set(False)
+    for ob in objects:
+        ob.hide_select = False
+        ob.select_set(True)
+    view_layer.objects.active = objects[0]
+    # Real meshes with every modifier applied, each with its own mesh data
+    # (shared meshes would get one object's light on all copies).
+    bpy.ops.object.make_single_user(object=True, obdata=True)
+    bpy.ops.object.convert(target="MESH")
+    objects = [ob for ob in bpy.context.selected_objects if ob.type == "MESH"]
+    thin = []
+    for ob in objects:
+        if refine(ob, BAKE_DETAIL):
+            thin.append(ob)
+        # The baked light is the only vertex color the web gets.
+        for old in list(ob.data.color_attributes):
+            ob.data.color_attributes.remove(old)
+        ob.data.color_attributes.new(BAKE_ATTRIBUTE, "FLOAT_COLOR", "CORNER")
+        ob.data.color_attributes.active_color_name = BAKE_ATTRIBUTE
+    use_gpu()
+    scene.cycles.samples = BAKE_SAMPLES
+    scene.render.bake.target = "VERTEX_COLORS"
+
+    def bake(chosen):
+        for ob in view_layer.objects:
+            ob.select_set(ob in chosen)
+        view_layer.objects.active = chosen[0]
+        bpy.ops.object.bake(
+            type="DIFFUSE", pass_filter={"DIRECT", "INDIRECT"}, target="VERTEX_COLORS"
+        )
+
+    bake(objects)
+    # The back of thin surfaces: flip them over and bake again.
+    if thin:
+        for ob in thin:
+            ob.data.color_attributes.new(BAKE_BACK_ATTRIBUTE, "FLOAT_COLOR", "CORNER")
+            ob.data.color_attributes.active_color_name = BAKE_BACK_ATTRIBUTE
+            ob.data.flip_normals()
+        bake(thin)
+        for ob in thin:
+            ob.data.flip_normals()
+            ob.data.color_attributes.active_color_name = BAKE_ATTRIBUTE
+    return time.time() - started
+
+
+def color_config():
+    import PyOpenColorIO as OCIO
+
+    path = os.path.join(bpy.utils.system_resource("DATAFILES"), "colormanagement", "config.ocio")
+    return OCIO, OCIO.Config.CreateFromFile(path)
+
+
+def view_processor():
+    """Blender's color look as a function: light values in, screen colors out."""
+    OCIO, config = color_config()
+    scene = bpy.context.scene
+    view = scene.view_settings
+    transform = OCIO.DisplayViewTransform(
+        src=config.getRoleColorSpace("scene_linear"),
+        display=scene.display_settings.display_device,
+        view=view.view_transform,
+    )
+    pipeline = OCIO.LegacyViewingPipeline()
+    pipeline.setDisplayViewTransform(transform)
+    if view.look not in {"", "None"}:
+        looks = {look.getName() for look in config.getLooks()}
+        name = view.look if view.look in looks else view.look.split(" - ", 1)[-1]
+        if name in looks:
+            pipeline.setLooksOverrideEnabled(True)
+            pipeline.setLooksOverride(name)
+        else:
+            warnings.append(f"Color look '{view.look}' wasn't found; the web uses the plain view.")
+    processor = pipeline.getProcessor(config).getDefaultCPUProcessor()
+    exposure = 2 ** view.exposure
+    if render_engine == "CYCLES":
+        exposure *= scene.cycles.film_exposure
+    gamma = view.gamma
+
+    def apply(rgb_rows):
+        import numpy as np
+
+        pixels = np.ascontiguousarray(np.asarray(rgb_rows, dtype=np.float32) * exposure)
+        processor.applyRGB(pixels)
+        pixels = np.clip(pixels, 0.0, 1.0)
+        return pixels ** (1.0 / gamma) if gamma != 1.0 else pixels
+
+    return apply
+
+
+def view_lut():
+    """Blender's color look as a small color table the web can look up."""
+    import numpy as np
+
+    try:
+        apply = view_processor()
+    except Exception as error:  # an unusual color setup; the web approximates it
+        warnings.append(f"Couldn't read Blender's color look ({error}).")
+        return None, None
+    steps = np.linspace(0.0, 1.0, LUT_SIZE, dtype=np.float32)
+    blue, green, red = np.meshgrid(steps, steps, steps, indexing="ij")
+    grid = np.stack([red, green, blue], axis=-1).reshape(-1, 3)
+    low, high = LUT_RANGE
+    table = apply(np.exp2(low + grid * (high - low)))
+    data = np.round(table * 255).astype(np.uint8).tobytes()
+    background = [round(float(c), 5) for c in apply([world_background()])[0]]
+    lut = {
+        "size": LUT_SIZE,
+        "min": low,
+        "max": high,
+        "data": base64.b64encode(data).decode("ascii"),
+    }
+    return lut, background
+
+
 def shrink_textures():
     for image in bpy.data.images:
         if image.users == 0 or image.source not in {"FILE", "GENERATED"}:
@@ -366,6 +567,7 @@ def color_view():
 
 missing_images()
 realize_instances()
+bake_seconds = bake_lighting()
 give_default_material()
 fix_materials()
 fold_constant_colors()
@@ -388,12 +590,25 @@ bpy.ops.export_scene.gltf(
     export_lights=False,  # rebuilt by the viewer from the "vr" extras below
     export_cameras=True,
     export_animations=True,
+    # Baked: the front light becomes COLOR_0 and the back light COLOR_1.
+    export_vertex_color="ACTIVE" if bake_seconds else "MATERIAL",
+    export_all_vertex_colors=bool(bake_seconds),
     export_image_format="WEBP",
     export_image_quality=85,
+    # Squeezes the geometry about 10x (the site unpacks it with the Draco
+    # decoder in public/draco/). Colors keep 12 bits for smooth light.
+    export_draco_mesh_compression_enable=True,
+    export_draco_mesh_compression_level=6,
+    export_draco_color_quantization=12,
 )
-add_scene_extras(
-    out_path, {"lights": lights, "background": world_background(), "view": color_view()}
-)
+lut, background_on_screen = view_lut()
+extras = {"lights": lights, "background": world_background(), "view": color_view()}
+if bake_seconds:
+    extras["baked"] = True
+if lut:
+    extras["viewLut"] = lut
+    extras["backgroundOnScreen"] = background_on_screen
+add_scene_extras(out_path, extras)
 
 size_mb = os.path.getsize(out_path) / 1_000_000
 if size_mb > 25:
@@ -405,10 +620,18 @@ print(f"  File: {out_path}")
 print(f"  Size: {size_mb:.1f} MB")
 print(f"  Triangles: {triangles:,}")
 print(f"  Lights: {len(lights)}")
+if bake_seconds:
+    print(f"  Lighting: baked by Cycles in {bake_seconds:.0f} s (looks like your render)")
+else:
+    print("  Lighting: live lights")
 spawn = bpy.context.scene.objects.get("VR_Spawn")
 print(
     "  VR start point: "
-    + ("the VR_Spawn empty" if spawn else "a few steps back from what the camera looks at")
+    + (
+        "the VR_Spawn empty"
+        if spawn
+        else "the startOn object in world.json, or a few steps back from what the camera looks at"
+    )
 )
 for line in warnings:
     print(f"  ! {line}")
