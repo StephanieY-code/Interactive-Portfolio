@@ -2,7 +2,7 @@ import { OrbitControls, useGLTF } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import type { ThreeEvent } from "@react-three/fiber"
 import { IfInSessionMode, TeleportTarget, XROrigin } from "@react-three/xr"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js"
@@ -29,8 +29,16 @@ type LightRecord = {
   softness: number
 }
 
+/** Blender's color look (Render Properties > Color Management). */
+type ColorView = { transform?: string; exposure?: number }
+
 type PreparedWorld = {
   background: THREE.Color
+  /** The background as a tiny image, so it gets the same color look. */
+  backgroundTexture: THREE.Texture
+  toneMapping: THREE.ToneMapping
+  toneMappingExposure: number
+  fogNear: number
   lights: THREE.Object3D[]
   /** Pieces that react to pointing and clicking (removed from the scene). */
   touchables: THREE.Object3D[]
@@ -112,6 +120,23 @@ function makeLights(records: LightRecord[], scale: number, shadows: boolean) {
       camera.left = camera.bottom = -8
       camera.right = camera.top = 8
       camera.far = 60
+      objects.push(light, light.target)
+    } else if (record.type === "area" && shadows && record.shadow) {
+      // Web area lights can't cast shadows, and shadows matter more (trees
+      // and walls blocking the light, like in the render), so this one
+      // becomes a wide, soft spotlight just as bright.
+      const light = new THREE.SpotLight(
+        color,
+        record.intensity * (record.width ?? 1) * (record.height ?? 1) * scale * scale,
+        0,
+        THREE.MathUtils.degToRad(75),
+        1,
+        2,
+      )
+      light.position.copy(position)
+      light.target.position.copy(aim)
+      configureShadow(light, record)
+      light.shadow.radius = 6
       objects.push(light, light.target)
     } else if (record.type === "area") {
       const light = new THREE.RectAreaLight(
@@ -206,6 +231,7 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
   const extras = (scene.userData.vr ?? {}) as {
     lights?: LightRecord[]
     background?: Vec3
+    view?: ColorView
   }
   scene.updateMatrixWorld(true)
 
@@ -222,8 +248,9 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
 
   // Where the Blender camera is and what it looks at.
   const blenderCamera = gltf.cameras.find(
-    (c): c is THREE.PerspectiveCamera =>
-      (c as THREE.PerspectiveCamera).isPerspectiveCamera,
+    (c) =>
+      (c as THREE.PerspectiveCamera).isPerspectiveCamera ||
+      (c as THREE.OrthographicCamera).isOrthographicCamera,
   )
   const cameraPosition = new THREE.Vector3()
   const cameraDirection = new THREE.Vector3(0, 0, -1)
@@ -231,12 +258,15 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
   if (blenderCamera) {
     blenderCamera.getWorldPosition(cameraPosition)
     blenderCamera.getWorldDirection(cameraDirection)
-    horizontalFov =
-      2 *
-      Math.atan(
-        Math.tan(THREE.MathUtils.degToRad(blenderCamera.fov) / 2) *
-          blenderCamera.aspect,
-      )
+    const perspective = blenderCamera as THREE.PerspectiveCamera
+    if (perspective.isPerspectiveCamera) {
+      horizontalFov =
+        2 *
+        Math.atan(
+          Math.tan(THREE.MathUtils.degToRad(perspective.fov) / 2) *
+            perspective.aspect,
+        )
+    }
   } else {
     const box = new THREE.Box3().setFromObject(scene)
     const center = box.getCenter(new THREE.Vector3())
@@ -250,6 +280,45 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
   const target = hit
     ? hit.point.clone()
     : cameraPosition.clone().addScaledVector(cameraDirection, 10)
+
+  // An orthographic (flat, no perspective) Blender camera: the web view
+  // steps back along the same line of sight with a long lens, so it frames
+  // the same width of scene and still looks nearly as flat as the render.
+  const flatCamera = blenderCamera as THREE.OrthographicCamera | undefined
+  if (flatCamera?.isOrthographicCamera) {
+    const halfWidth = (flatCamera.right - flatCamera.left) / 2 / flatCamera.zoom
+    horizontalFov = THREE.MathUtils.degToRad(30)
+    cameraPosition
+      .copy(target)
+      .addScaledVector(cameraDirection, -halfWidth / Math.tan(horizontalFov / 2))
+  }
+
+  // Fog only far beyond the world, so the whole scene stays crisp.
+  const sceneBox = new THREE.Box3().setFromObject(scene)
+  const bounds = sceneBox.getBoundingSphere(new THREE.Sphere())
+  const fogNear = Math.max(14, (cameraPosition.distanceTo(target) + bounds.radius) * scale)
+
+  // Blender's color look: AgX (Blender's default) softens bright lights the
+  // same way on the web; Standard shows colors as they are.
+  const view = extras.view ?? {}
+  const exposure = view.exposure ?? 0
+  const toneMapping = view.transform?.startsWith("AgX")
+    ? THREE.AgXToneMapping
+    : view.transform === "Khronos PBR Neutral"
+      ? THREE.NeutralToneMapping
+      : exposure !== 0
+        ? THREE.LinearToneMapping
+        : THREE.NoToneMapping
+  const background = new THREE.Color(...(extras.background ?? [0.05, 0.05, 0.05]))
+  const backgroundTexture = new THREE.DataTexture(
+    new Float32Array([background.r, background.g, background.b, 1]),
+    1,
+    1,
+    THREE.RGBAFormat,
+    THREE.FloatType,
+  )
+  backgroundTexture.colorSpace = THREE.LinearSRGBColorSpace
+  backgroundTexture.needsUpdate = true
 
   // VR start point: a "VR_Spawn" empty from Blender, or a few steps back from
   // what the camera looks at. Visitors face that spot.
@@ -265,12 +334,18 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
   if (facing.lengthSq() < 1e-6) facing.copy(flat)
   facing.normalize()
 
+  // Where visitors can teleport: the world's whole floor area when they
+  // start on it (a diorama or room), else around the start and the subject.
+  const floorCenter = sceneBox.getCenter(new THREE.Vector3()).setY(0)
+  const floorRadius =
+    Math.min(sceneBox.max.x - sceneBox.min.x, sceneBox.max.z - sceneBox.min.z) / 2
+  const startsOnFloor =
+    floorRadius * scale >= 3 &&
+    Math.hypot(spawn.x - floorCenter.x, spawn.z - floorCenter.z) < floorRadius * 0.95
   const spawnToTarget = Math.hypot(target.x - spawn.x, target.z - spawn.z)
-  const teleportCenter = new THREE.Vector3(
-    (spawn.x + target.x) / 2,
-    0,
-    (spawn.z + target.z) / 2,
-  )
+  const teleportCenter = startsOnFloor
+    ? floorCenter
+    : new THREE.Vector3((spawn.x + target.x) / 2, 0, (spawn.z + target.z) / 2)
 
   const touchables = makeTouchables(scene, settings.touchable ?? [])
   const touchClips = new Map<THREE.Object3D, THREE.AnimationClip[]>()
@@ -288,7 +363,11 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
   }
 
   const result: PreparedWorld = {
-    background: new THREE.Color(...(extras.background ?? [0.05, 0.05, 0.05])),
+    background,
+    backgroundTexture,
+    toneMapping,
+    toneMappingExposure: 2 ** exposure,
+    fogNear,
     lights: makeLights(extras.lights ?? [], scale, shadows),
     touchables,
     touchClips,
@@ -299,7 +378,9 @@ function prepareWorld(gltf: GLTF, settings: WorldSettings): PreparedWorld {
     spawn: spawn.multiplyScalar(scale),
     spawnYaw: Math.atan2(-facing.x, -facing.z),
     teleportCenter: teleportCenter.multiplyScalar(scale),
-    teleportRadius: Math.max(spawnToTarget * scale / 2 + 2.5, 5),
+    teleportRadius: startsOnFloor
+      ? floorRadius * scale * 0.95
+      : Math.max((spawnToTarget * scale) / 2 + 2.5, 5),
   }
   prepared.set(gltf, result)
   return result
@@ -362,6 +443,12 @@ export function WorldScene({
   const sways = useRef(new Map<THREE.Object3D, { start: number; axis: THREE.Vector3 }>())
   const hoverCounts = useRef(new Map<THREE.Object3D, number>())
   const busyUntil = useRef(0)
+
+  // Match Blender's color look (before the first frame is drawn).
+  useLayoutEffect(() => {
+    gl.toneMapping = setup.toneMapping
+    gl.toneMappingExposure = setup.toneMappingExposure
+  }, [gl, setup])
 
   // The world is still, so shadows are drawn once and redrawn only while
   // something moves (much lighter for a headset).
@@ -468,8 +555,8 @@ export function WorldScene({
 
   return (
     <>
-      <color attach="background" args={[setup.background.r, setup.background.g, setup.background.b]} />
-      <fog attach="fog" args={[setup.background, 14, 40]} />
+      <primitive attach="background" object={setup.backgroundTexture} />
+      <fog attach="fog" args={[setup.background, setup.fogNear, setup.fogNear + 26]} />
       {/* Blender's world color lights everything a little, like in EEVEE. */}
       <ambientLight color={setup.background} intensity={Math.PI} />
 

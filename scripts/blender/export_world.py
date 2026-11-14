@@ -7,6 +7,10 @@ Blender in the background, so your .blend file is never changed or saved.
 
 What it does on a temporary copy of the scene in memory:
   * Skips hidden objects, and exports the camera and animations.
+  * Copies made with Geometry Nodes (scattered leaves, grass) become real
+    geometry, since the web format can't store them as copies.
+  * Toon color setups (Shader to RGB -> Color Ramp) become the single color
+    they show in a Cycles render.
   * Materials the web can't read (glass or mix-shader setups) are swapped for
     see-through tinted glass, or simplified to their Principled BSDF. Objects
     with no material get Blender's default grey (the web would show metal).
@@ -15,6 +19,7 @@ What it does on a temporary copy of the scene in memory:
   * Lights are written into the file the way Blender renders them (color,
     power x 2^exposure, cone, shadows), including Area lights, which the
     standard web format can't hold. The viewer rebuilds them from this.
+  * Saves Blender's color look (AgX or Standard) so the web matches it.
   * Prints a short report: size, triangle count, and any warnings.
 """
 
@@ -116,6 +121,122 @@ def fix_materials():
                 f"'{material.name}': node setup can't be exported to the web; it will look plain. "
                 "Use a Principled BSDF, or bake it to an image texture."
             )
+
+
+LUMINANCE = (0.2126, 0.7152, 0.0722)
+
+
+def as_float(value):
+    return sum(c * w for c, w in zip(value, LUMINANCE)) if isinstance(value, tuple) else value
+
+
+def as_color(value):
+    return value if isinstance(value, tuple) else (value, value, value, 1.0)
+
+
+def smooth(edge0, edge1, x, smoother):
+    t = min(max((x - edge0) / (edge1 - edge0), 0.0), 1.0)
+    return t * t * t * (t * (t * 6 - 15) + 10) if smoother else t * t * (3 - 2 * t)
+
+
+def constant_value(socket):
+    """What a node input works out to, when it's the same everywhere on the
+    surface (no textures, attributes, or lighting tricks), else None.
+
+    Blender's renderer (Cycles) can't run the "Shader to RGB" toon node and
+    treats it as unplugged, so the input it feeds keeps its own value. That's
+    what the render shows, so the web gets that too.
+    """
+    if not socket.links:
+        value = socket.default_value
+        return tuple(value) if hasattr(value, "__len__") else value
+    node = socket.links[0].from_node
+    kind = node.bl_idname
+    if kind == "ShaderNodeShaderToRGB":
+        value = socket.default_value
+        return tuple(value) if hasattr(value, "__len__") else value
+    if kind == "ShaderNodeRGB":
+        return tuple(node.outputs[0].default_value)
+    if kind == "ShaderNodeValue":
+        return node.outputs[0].default_value
+    if kind == "ShaderNodeValToRGB":  # Color Ramp
+        factor = constant_value(node.inputs[0])
+        return None if factor is None else tuple(node.color_ramp.evaluate(as_float(factor)))
+    if kind == "ShaderNodeMapRange" and node.data_type == "FLOAT":
+        values = [constant_value(node.inputs[i]) for i in range(6)]
+        if any(v is None for v in values):
+            return None
+        x, from_min, from_max, to_min, to_max, steps = (as_float(v) for v in values)
+        if from_max == from_min:
+            return 0.0
+        if node.interpolation_type in {"SMOOTHSTEP", "SMOOTHERSTEP"}:
+            smoother = node.interpolation_type == "SMOOTHERSTEP"
+            if from_min > from_max:
+                factor = 1 - smooth(from_max, from_min, x, smoother)
+            else:
+                factor = smooth(from_min, from_max, x, smoother)
+        else:
+            factor = (x - from_min) / (from_max - from_min)
+            if node.interpolation_type == "STEPPED" and steps > 0:
+                factor = math.floor(factor * (steps + 1)) / steps
+        result = to_min + factor * (to_max - to_min)
+        if node.clamp and node.interpolation_type in {"LINEAR", "STEPPED"}:
+            result = min(max(result, min(to_min, to_max)), max(to_min, to_max))
+        return result
+    return None
+
+
+def fold_constant_colors():
+    """Color setups like toon ramps (Shader to RGB -> Color Ramp) can't be
+    read by the web; when they work out to one color, use that color."""
+    used = {
+        slot.material
+        for ob in bpy.context.scene.objects
+        if ob.visible_get()
+        for slot in ob.material_slots
+        if slot.material and slot.material.use_nodes and slot.material.node_tree
+    }
+    for material in used:
+        tree = material.node_tree
+        for node in tree.nodes:
+            if node.bl_idname != "ShaderNodeBsdfPrincipled":
+                continue
+            for socket in node.inputs:
+                if not socket.links or socket.type not in {"RGBA", "VALUE"}:
+                    continue
+                value = constant_value(socket)
+                if value is None:
+                    continue
+                tree.links.remove(socket.links[0])
+                socket.default_value = as_color(value) if socket.type == "RGBA" else as_float(value)
+
+
+def realize_instances():
+    """Copies made by Geometry Nodes (scattered leaves, grass, rocks) aren't
+    saved on their own in the web format, so they're turned into real
+    geometry for the export."""
+    done = set()
+    for ob in bpy.context.scene.objects:
+        if not ob.visible_get():
+            continue
+        for modifier in ob.modifiers:
+            group = getattr(modifier, "node_group", None)
+            if modifier.type != "NODES" or group is None or group in done:
+                continue
+            done.add(group)
+            output = next(
+                (n for n in group.nodes if n.bl_idname == "NodeGroupOutput" and n.is_active_output),
+                None,
+            )
+            if output is None:
+                continue
+            for socket in output.inputs:
+                if socket.type != "GEOMETRY" or not socket.links:
+                    continue
+                source = socket.links[0].from_socket
+                realize = group.nodes.new("GeometryNodeRealizeInstances")
+                group.links.new(source, realize.inputs[0])
+                group.links.new(realize.outputs[0], socket)
 
 
 def shrink_textures():
@@ -237,9 +358,17 @@ def missing_images():
                 warnings.append(f"Image '{image.name}' is missing ({path}); that texture will be blank.")
 
 
+def color_view():
+    """Blender's color look (AgX, Standard...), so the web can match it."""
+    view = bpy.context.scene.view_settings
+    return {"transform": view.view_transform, "exposure": round(view.exposure, 4)}
+
+
 missing_images()
+realize_instances()
 give_default_material()
 fix_materials()
+fold_constant_colors()
 shrink_textures()
 lights = light_records()
 triangles = count_triangles()
@@ -262,7 +391,9 @@ bpy.ops.export_scene.gltf(
     export_image_format="WEBP",
     export_image_quality=85,
 )
-add_scene_extras(out_path, {"lights": lights, "background": world_background()})
+add_scene_extras(
+    out_path, {"lights": lights, "background": world_background(), "view": color_view()}
+)
 
 size_mb = os.path.getsize(out_path) / 1_000_000
 if size_mb > 25:

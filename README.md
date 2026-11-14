@@ -30,13 +30,15 @@ More details: [src/artworks/README.md](src/artworks/README.md)
 
 ## VR worlds (Blender → website → Meta Quest)
 
-Each VR card opens a 3D world made in Blender. Visitors can look around on a
-laptop or phone, or press **Enter VR** in a Meta Quest's browser to step
-inside (WebXR).
+The VR slide's TV screen shows a world's cover drawing (or timelapse video).
+Clicking it opens a 3D world made in Blender in a big panel. Visitors can
+look around on a laptop or phone, or press **Enter VR** in a Meta Quest's
+browser to step inside (WebXR).
 
 1. Double-click **`Export VR World.command`**, pick the `.blend` file and the
    card (garden, clouds, or moon).
-2. Put the card's 2D drawing next to it as `src/vr-worlds/<card>/cover.jpg`.
+2. Put the card's 2D drawing next to it as `src/vr-worlds/<card>/cover.jpg`
+   (and, if you like, a timelapse video as `cover.mp4`).
 3. Double-click **`Publish Artwork.command`**.
 
 Settings, Blender tips, and how to try it on a Quest:

@@ -87,9 +87,11 @@ export default function VRViewer({ world }: { world: VRWorld }) {
       <WorldErrorBoundary>
         <Canvas
           className="vr-canvas"
-          flat // colors like Blender's "Standard" view
+          flat // no extra color look here; WorldScene matches Blender's (AgX or Standard)
           shadows="percentage"
           dpr={[1, 2]}
+          // Measure the panel's real size, not its size mid pop-in animation.
+          resize={{ offsetSize: true }}
           camera={{ fov: 50, near: 0.05, far: 500, position: [0, 1.6, 4] }}
           aria-label={`${world.title}: 3D world. Drag to look around.`}
         >

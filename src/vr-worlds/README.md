@@ -4,20 +4,26 @@ Each VR card on the site opens the world in its folder:
 
 ```
 src/vr-worlds/
-  garden/   ← card 1
+  garden/   ← card 1 (the one on the VR slide; now the Ramen Shop)
   clouds/   ← card 2
   moon/     ← card 3
 ```
+
+On the VR slide, the TV screen shows the world's cover (drawing or video).
+Clicking it opens the 3D world in a big framed panel, like the artwork
+popup, with an **Enter VR** button for Quest visitors.
 
 Inside a world's folder:
 
 | File | What it is |
 | --- | --- |
-| `cover.jpg` (or `.png`) | The 2D drawing shown on the card. |
+| `cover.jpg` (or `.png`, `.webp`) | The 2D drawing shown on the TV screen. |
+| `cover.mp4` (or `.webm`) | Optional. A video (like your drawing timelapse) that plays, muted and looping, on the TV instead of the drawing. The drawing shows while it loads. |
 | `scene.glb` | The 3D world, made from your Blender file (see below). |
 | `world.json` | Optional settings (see below). |
 
-A card with no `scene.glb` keeps the simple animated placeholder world.
+A card with no `scene.glb` keeps the simple animated placeholder world. A
+world with no cover shows a live 3D view on the TV instead.
 
 ## Add or update a world
 
@@ -27,7 +33,9 @@ A card with no `scene.glb` keeps the simple animated placeholder world.
    is never changed. Read the short report it prints; lines starting with
    `!` are things to know about.
 2. **Add the cover:** put the card's drawing in the same folder as
-   `cover.jpg`.
+   `cover.jpg` (delete the old cover if it has a different ending, like
+   `cover.webp`). For a timelapse, also add `cover.mp4`. Keep the video
+   short and small (under about 10 MB) so the page stays quick.
 3. **Preview (optional):** run `pnpm dev` and open http://localhost:8443.
 4. **Publish:** double-click **`Publish Artwork.command`**. The live site
    updates about a minute later.
@@ -72,20 +80,28 @@ From a terminal, step 1 is: `pnpm vr:export ~/Desktop/BLENDER/PLANT.blend garden
 - **Keep it light for the headset:** under about 300,000 triangles, textures
   up to 2048 px (bigger ones are shrunk for you), and a file under 25 MB.
 - **Materials:** use the Principled BSDF. Glass becomes simple see-through
-  glass. Procedural node setups don't carry over, so bake them to an image
-  texture.
+  glass. Toon setups (Shader to RGB → Color Ramp) become the one color they
+  show in a Cycles render. Other procedural node setups don't carry over,
+  so bake them to an image texture.
+- **Geometry Nodes:** scattered copies (like leaves on a tree) are turned
+  into real geometry for the export, so they show up on the web.
 - **Lights:** point, spot, sun, and area lights carry over with their color
-  and strength (including Exposure). Shadows come from spot and sun lights.
+  and strength (including Exposure). Shadows come from spot, sun, and area
+  lights (an area light becomes a soft spotlight so it can cast shadows).
+- **Camera:** a perspective or orthographic camera both work. The web view
+  starts from the same angle and shows the same width of the scene.
+- **Color:** Blender's color look (AgX or Standard, in Render Properties →
+  Color Management) carries over.
 - **Animations:** animations on touchable objects play when they're touched;
   all other animations loop.
 - **The floor:** visitors can teleport anywhere on the ground (height 0)
-  near the scene.
+  across the scene.
 
 ## On a Meta Quest
 
 1. Open the **Browser** app on the Quest and go to
    https://stephaniey-code.github.io/Interactive-Portfolio/
-2. Scroll to the VR cards and click one.
+2. Scroll to the VR slide and click the TV screen.
 3. Press **Enter VR** at the bottom.
 4. **Look around** by turning your head. **Point and pull the trigger** (or
    pinch with your hand) to touch things. To move, **point at the floor**

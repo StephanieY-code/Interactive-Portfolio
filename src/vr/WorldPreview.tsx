@@ -25,7 +25,7 @@ export default function WorldPreview({
   return (
     <Canvas
       className="vr-preview-canvas"
-      flat // colors like Blender's "Standard" view
+      flat // no extra color look here; WorldScene matches Blender's (AgX or Standard)
       shadows="percentage"
       dpr={[1, 1.5]}
       frameloop={playing ? "always" : "demand"}

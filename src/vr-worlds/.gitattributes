@@ -13,3 +13,9 @@
 *.gif -filter -diff -merge -text
 *.GIF -filter -diff -merge -text
 *.glb -filter -diff -merge -text
+*.mp4 -filter -diff -merge -text
+*.MP4 -filter -diff -merge -text
+*.webm -filter -diff -merge -text
+*.WEBM -filter -diff -merge -text
+*.mov -filter -diff -merge -text
+*.MOV -filter -diff -merge -text

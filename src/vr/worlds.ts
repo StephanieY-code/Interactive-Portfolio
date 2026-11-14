@@ -1,5 +1,7 @@
 // Finds each VR world in src/vr-worlds/<world>/ automatically:
 //   cover.jpg (or .png/.webp)  the 2D drawing shown on the VR card
+//   cover.mp4 (or .webm/.mov)  optional video (like a drawing timelapse)
+//                              that plays on the card instead of the drawing
 //   scene.glb                  the 3D world, made by "Export VR World.command"
 //   world.json                 optional settings (see src/vr-worlds/README.md)
 // A card with no scene.glb keeps the simple animated placeholder world.
@@ -27,6 +29,8 @@ export type VRWorld = {
   id: string
   title: string
   cover?: string
+  /** A looping video shown on the card in place of the cover drawing. */
+  coverVideo?: string
   model?: string
   settings: WorldSettings
 }
@@ -34,6 +38,10 @@ export type VRWorld = {
 const covers = import.meta.glob<string>(
   "../vr-worlds/*/cover.{png,jpg,jpeg,webp,PNG,JPG,JPEG,WEBP}",
   { eager: true, import: "default" },
+)
+const coverVideos = import.meta.glob<string>(
+  "../vr-worlds/*/cover.{mp4,webm,mov,MP4,WEBM,MOV}",
+  { eager: true, query: "?url", import: "default" },
 )
 const models = import.meta.glob<string>("../vr-worlds/*/scene.glb", {
   eager: true,
@@ -56,6 +64,7 @@ export function getWorld(id: string): VRWorld {
     id,
     title: settings.title ?? id[0].toUpperCase() + id.slice(1),
     cover: inFolder(covers, id),
+    coverVideo: inFolder(coverVideos, id),
     model: inFolder(models, id),
     settings,
   }

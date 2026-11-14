@@ -759,11 +759,12 @@ em {
 }
 
 .art-lightbox {
+  --lightbox-pad: clamp(1.5rem, 5vw, 4rem);
   display: grid;
   position: fixed;
   z-index: 90;
   inset: 0;
-  padding: clamp(1.5rem, 5vw, 4rem);
+  padding: var(--lightbox-pad);
   place-items: center;
   background: rgb(17 27 85 / .82);
   backdrop-filter: blur(16px);
@@ -1078,42 +1079,43 @@ em {
   background: var(--blue);
 }
 
-.dream-transition {
-  position: fixed;
+/* A VR world opens in a big framed panel, like the artwork popup. */
+.world-lightbox {
   z-index: 100;
-  inset: 0;
-  overflow: hidden;
-  background: var(--cream);
-  animation: dreamIn .9s ease both;
 }
 
-.dream-cloud {
-  position: absolute;
-  z-index: 4;
-  width: 70vw;
-  height: 55vh;
-  border-radius: 50%;
-  background: rgb(255 250 240 / .92);
-  filter: blur(35px);
-  /* The clouds fade out but stay on top; let clicks and drags through. */
-  pointer-events: none;
-  animation: cloudsPart 1.2s .5s ease forwards;
+.world-window {
+  position: relative;
+  width: min(100vw - 2 * var(--lightbox-pad), 1500px);
+  height: min(100svh - 2 * var(--lightbox-pad), 1000px);
+  border: 10px solid var(--paper);
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow: 0 24px 60px rgb(17 27 85 / .3);
+  animation: lightboxOpen .55s cubic-bezier(.16, 1, .3, 1) both;
 }
 
-.cloud-a { top: -10%; left: -15%; }
-.cloud-b { right: -15%; bottom: -10%; }
+.world-window .lightbox-close {
+  z-index: 5;
+}
+
+.world-window:fullscreen {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.world-window:fullscreen .lightbox-close {
+  top: 1rem;
+  right: 1rem;
+}
 
 .immersive-world {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  opacity: 0;
   background: linear-gradient(#4152a4, #8996d4 52%, #e8b098 53%);
-  transition: opacity .7s .25s ease;
-}
-
-.world-open .immersive-world {
-  opacity: 1;
 }
 
 .world-sky {
@@ -1267,15 +1269,6 @@ em {
 @keyframes portalOpen {
   40% { transform: scale(1.04) rotate(1deg); filter: saturate(1.4) brightness(1.1); }
   100% { transform: scale(1.8); opacity: 0; filter: blur(12px) brightness(1.7); }
-}
-
-@keyframes dreamIn {
-  from { opacity: 0; clip-path: circle(0 at 50% 50%); }
-  to { opacity: 1; clip-path: circle(150% at 50% 50%); }
-}
-
-@keyframes cloudsPart {
-  to { opacity: 0; transform: scale(1.7) translateY(-25%); }
 }
 
 @keyframes twinkle {
@@ -1714,8 +1707,8 @@ em {
   display: flex;
   position: absolute;
   z-index: 3;
-  top: 1.5rem;
-  right: 1.5rem;
+  top: 1rem;
+  left: 1rem;
   gap: .7rem;
 }
 
@@ -2039,10 +2032,6 @@ em {
 .vr-screen:focus-visible {
   filter: brightness(1.05) saturate(1.06);
   transform: scale(1.025);
-}
-
-.vr-screen.is-opening {
-  animation: portalOpen .9s ease forwards;
 }
 
 .vr-screen .vr-preview-canvas,

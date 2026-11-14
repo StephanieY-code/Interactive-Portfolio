@@ -18,7 +18,8 @@ import titlePortfolio from "./assets/title-portfolio.png"
 // when someone hovers or opens a VR world, so the main page stays light.
 const loadVRViewer = () => import("./vr/VRViewer")
 const VRViewer = lazy(loadVRViewer)
-// The live view inside the VR slide's painted screen (loads near that slide).
+// A live view for the VR slide's painted screen, used only when a world has
+// no cover drawing or video (loads near that slide).
 const WorldPreview = lazy(() => import("./vr/WorldPreview"))
 
 const prefersReducedMotion = () =>
@@ -42,8 +43,9 @@ const vrProjects = [
   { number: "03", className: "moon" },
 ].map((project) => ({ ...project, world: getWorld(project.className) }))
 
-// For now the VR slide shows one world (the first) inside its painted screen.
-// The other cards' folders still work; they just aren't shown on the slide.
+// For now the VR slide shows one world (the first) inside its painted screen:
+// its cover drawing (or cover video), and clicking it opens the 3D world in
+// a big panel. The other cards' folders still work; they just aren't shown.
 const featuredWorld = vrProjects[0]
 
 // Start downloading the 3D viewer and this world's model ahead of the click.
@@ -93,9 +95,8 @@ export default function App() {
   } | null>(null)
   const [selectedWorld, setSelectedWorld] =
     useState<typeof vrProjects[number] | null>(null)
-  const [vrMode, setVrMode] = useState(false)
-  // The VR slide's live screen: load it when the slide is near, and only let
-  // it animate while the slide is actually on screen.
+  // The VR slide's screen: load its video (or live view) when the slide is
+  // near, and only let it play while the slide is actually on screen.
   const [screenNear, setScreenNear] = useState(false)
   const [screenOnView, setScreenOnView] = useState(false)
   const [screenReady, setScreenReady] = useState(false)
@@ -103,6 +104,11 @@ export default function App() {
   const galleryRef = useRef<HTMLElement>(null)
   const vrRef = useRef<HTMLElement>(null)
   const screenRef = useRef<HTMLButtonElement>(null)
+  const coverVideoRef = useRef<HTMLVideoElement>(null)
+  const worldWindowRef = useRef<HTMLDivElement>(null)
+  // Only a press that starts on the dark backdrop closes the world, so
+  // dragging to look around and letting go outside the panel doesn't.
+  const pressedBackdrop = useRef(false)
   const markScreenReady = useCallback(() => setScreenReady(true), [])
   const scrollerRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -229,17 +235,11 @@ export default function App() {
     event.stopPropagation()
   }
 
-  useEffect(() => {
-    if (!selectedWorld) return
-    const timer = window.setTimeout(() => setVrMode(true), 900)
-    return () => window.clearTimeout(timer)
-  }, [selectedWorld])
-
-  // Watch the VR slide's screen: start loading the live world about a screen
-  // away, and animate it only while it's visible.
+  // Watch the VR slide's screen: start loading its video (or live view)
+  // about a screen away, and play it only while it's visible.
   useEffect(() => {
     const screen = screenRef.current
-    if (!screen || !featuredWorld.world.model) return
+    if (!screen) return
     const near = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -260,6 +260,18 @@ export default function App() {
       onView.disconnect()
     }
   }, [])
+
+  // The cover video plays only while the screen is in view (and not behind
+  // the open world, or for visitors who prefer less motion).
+  useEffect(() => {
+    const video = coverVideoRef.current
+    if (!video) return
+    if (screenOnView && !selectedWorld && !prefersReducedMotion()) {
+      video.play().catch(() => {})
+    } else {
+      video.pause()
+    }
+  }, [screenNear, screenOnView, selectedWorld])
 
   useEffect(() => {
     const slides = document.querySelectorAll<HTMLElement>(".slide-section")
@@ -300,8 +312,12 @@ export default function App() {
 
   const closeWorld = () => {
     if (document.fullscreenElement) document.exitFullscreen?.()
-    setVrMode(false)
     setSelectedWorld(null)
+  }
+
+  const toggleWorldFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen?.()
+    else void worldWindowRef.current?.requestFullscreen?.()
   }
 
   return (
@@ -469,7 +485,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* The painted slide; the world plays live inside its cream screen. */}
+        {/* The painted slide; the world's cover sits inside its cream screen. */}
         <div className="vr-stage">
           <img
             className="vr-backdrop"
@@ -480,7 +496,7 @@ export default function App() {
           />
           <button
             ref={screenRef}
-            className={`vr-screen${selectedWorld ? " is-opening" : ""}`}
+            className="vr-screen"
             onClick={() => {
               warmUpWorld(featuredWorld)
               setScreenReady(false)
@@ -488,9 +504,28 @@ export default function App() {
             }}
             onPointerEnter={() => warmUpWorld(featuredWorld)}
             onFocus={() => warmUpWorld(featuredWorld)}
-            aria-label={`Enter the ${featuredWorld.world.title} world`}
+            aria-label={`Open the ${featuredWorld.world.title} world`}
           >
-            {featuredWorld.world.model ? (
+            {featuredWorld.world.cover || featuredWorld.world.coverVideo ? (
+              <>
+                {featuredWorld.world.cover && (
+                  <img className="vr-cover" src={featuredWorld.world.cover} alt="" />
+                )}
+                {featuredWorld.world.coverVideo && screenNear && (
+                  <video
+                    ref={coverVideoRef}
+                    className="vr-cover"
+                    src={featuredWorld.world.coverVideo}
+                    poster={featuredWorld.world.cover}
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    aria-hidden="true"
+                  />
+                )}
+              </>
+            ) : featuredWorld.world.model ? (
               <>
                 {screenNear && !selectedWorld && (
                   <Suspense fallback={null}>
@@ -507,11 +542,7 @@ export default function App() {
                   </span>
                 )}
               </>
-            ) : (
-              featuredWorld.world.cover && (
-                <img className="vr-cover" src={featuredWorld.world.cover} alt="" />
-              )
-            )}
+            ) : null}
           </button>
         </div>
 
@@ -550,57 +581,67 @@ export default function App() {
       )}
 
       {selectedWorld && (
+        // The world opens in a big framed panel, like the artwork popup.
         <div
-          className={`dream-transition ${vrMode ? "world-open" : ""}`}
+          className="art-lightbox world-lightbox"
           role="dialog"
           aria-modal="true"
           aria-label={`${selectedWorld.world.title} world`}
+          onPointerDown={(event) => {
+            pressedBackdrop.current = event.target === event.currentTarget
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget && pressedBackdrop.current) {
+              closeWorld()
+            }
+          }}
         >
-          <div className="dream-cloud cloud-a" />
-          <div className="dream-cloud cloud-b" />
-          <div
-            className={`immersive-world${
-              selectedWorld.world.model ? " has-model" : ""
-            }`}
-          >
-            {selectedWorld.world.model ? (
-              // The 3D world loads behind the clouds while they part.
-              <Suspense
-                fallback={<p className="vr-status">Opening the world…</p>}
-              >
-                <VRViewer world={selectedWorld.world} />
-              </Suspense>
-            ) : (
-              <>
-                <div className="world-sky">
-                  <span className="world-moon" />
-                  <span className="world-star star-1" />
-                  <span className="world-star star-2" />
-                  <span className="world-star star-3" />
-                </div>
-                <div className="world-hill hill-back" />
-                <div className="world-hill hill-front" />
-                <div className="world-object object-one" />
-                <div className="world-object object-two" />
-                <div className="world-object object-three" />
-              </>
-            )}
-            <div className="world-controls">
-              <button
-                className="fullscreen-button"
-                onClick={() => document.documentElement.requestFullscreen?.()}
-                aria-label="Fullscreen"
-              >
-                <i aria-hidden="true" />
-              </button>
-              <button
-                className="close-button"
-                onClick={closeWorld}
-                aria-label="Close"
-              >
-                <i aria-hidden="true" />
-              </button>
+          <div className="world-window" ref={worldWindowRef}>
+            <div
+              className={`immersive-world${
+                selectedWorld.world.model ? " has-model" : ""
+              }`}
+            >
+              {selectedWorld.world.model ? (
+                <Suspense
+                  fallback={<p className="vr-status">Opening the world…</p>}
+                >
+                  <VRViewer world={selectedWorld.world} />
+                </Suspense>
+              ) : (
+                <>
+                  <div className="world-sky">
+                    <span className="world-moon" />
+                    <span className="world-star star-1" />
+                    <span className="world-star star-2" />
+                    <span className="world-star star-3" />
+                  </div>
+                  <div className="world-hill hill-back" />
+                  <div className="world-hill hill-front" />
+                  <div className="world-object object-one" />
+                  <div className="world-object object-two" />
+                  <div className="world-object object-three" />
+                </>
+              )}
             </div>
+            {document.fullscreenEnabled && (
+              <div className="world-controls">
+                <button
+                  className="fullscreen-button"
+                  onClick={toggleWorldFullscreen}
+                  aria-label="Fullscreen"
+                >
+                  <i aria-hidden="true" />
+                </button>
+              </div>
+            )}
+            <button
+              className="lightbox-close"
+              onClick={closeWorld}
+              aria-label="Close"
+            >
+              <i aria-hidden="true" />
+            </button>
           </div>
         </div>
       )}
