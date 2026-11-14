@@ -4,8 +4,8 @@
 // On a laptop or phone: drag to look around, scroll/pinch to zoom.
 // On a Meta Quest (3, 3S, Pro) in the Quest browser: an "Enter VR" button
 // starts WebXR. Visitors look around, point a controller (or pinch with
-// their hands) to touch things, and push the thumbstick forward (or pinch
-// and hold) to aim a teleport arc at the floor.
+// their hands) to touch things, walk with the left thumbstick, turn with
+// the right one, or hold the trigger (or pinch) at the floor to teleport.
 
 import { useProgress } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"

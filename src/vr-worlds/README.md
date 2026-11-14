@@ -133,7 +133,14 @@ From a terminal, step 1 is: `pnpm vr:export ~/Desktop/BLENDER/PLANT.blend garden
 2. Scroll to the VR slide and click the TV screen.
 3. Press **Enter VR** at the bottom.
 4. **Look around** by turning your head. **Point and pull the trigger** (or
-   pinch with your hand) to touch things. To move, **point at the floor**
-   until a curved line appears, then pull the trigger to teleport there.
-5. To leave, press the **Meta button** on the right controller and choose
+   pinch with your hand) to touch things.
+5. **Move around:**
+   - **Walk:** push the **left thumbstick**. You move the way you're
+     looking.
+   - **Turn:** flick the **right thumbstick** left or right to turn in
+     45° steps. This works well in a small **Stationary** boundary, where
+     you can't walk with your real feet.
+   - **Teleport:** point at the floor and hold the trigger (or pinch and
+     hold). A curved line shows where you'll land; let go to jump there.
+6. To leave, press the **Meta button** on the right controller and choose
    to exit, or take the headset off.

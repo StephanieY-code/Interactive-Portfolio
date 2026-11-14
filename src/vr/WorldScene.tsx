@@ -1,7 +1,12 @@
 import { OrbitControls, useGLTF } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import type { ThreeEvent } from "@react-three/fiber"
-import { IfInSessionMode, TeleportTarget, XROrigin } from "@react-three/xr"
+import {
+  IfInSessionMode,
+  TeleportTarget,
+  XROrigin,
+  useXRControllerLocomotion,
+} from "@react-three/xr"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
@@ -994,9 +999,47 @@ export function WorldScene({
 }
 
 /** Mouse/touch looking around, plus the VR start point and teleporting. */
+// Thumbstick walking speed (meters per second) and turn step (degrees).
+const WALK_SPEED = 1.5
+const TURN_DEGREES = 45
+const turnPivot = new THREE.Vector3()
+
 function WorldControls({ setup }: { setup: PreparedWorld }) {
   const [origin, setOrigin] = useState(() => setup.spawn.clone())
   const { teleportCenter, teleportRadius } = setup
+  const originRef = useRef<THREE.Group>(null)
+
+  // Quest controllers: the left thumbstick walks the way you're looking, the
+  // right thumbstick turns in steps (gentler on the stomach than smooth
+  // turning). Handy in a small Stationary boundary.
+  useXRControllerLocomotion(
+    (velocity, turn, delta, state) => {
+      const rig = originRef.current
+      if (!rig) return
+      if (turn !== 0) {
+        // Turn around the visitor's head, not the middle of their play space.
+        state.camera.getWorldPosition(turnPivot)
+        rig.position
+          .sub(turnPivot)
+          .applyAxisAngle(THREE.Object3D.DEFAULT_UP, turn)
+          .add(turnPivot)
+        rig.rotation.y += turn
+      }
+      rig.position.x += velocity.x * delta
+      rig.position.z += velocity.z * delta
+      // Stay on the world's floor (the same area visitors can teleport to).
+      const dx = rig.position.x - teleportCenter.x
+      const dz = rig.position.z - teleportCenter.z
+      const distance = Math.hypot(dx, dz)
+      if (distance > teleportRadius) {
+        rig.position.x = teleportCenter.x + (dx / distance) * teleportRadius
+        rig.position.z = teleportCenter.z + (dz / distance) * teleportRadius
+      }
+    },
+    { speed: WALK_SPEED },
+    { type: "snap", degrees: TURN_DEGREES },
+  )
+
   return (
     <>
       {/* Camera controls are removed in VR (the headset moves the camera). */}
@@ -1011,8 +1054,9 @@ function WorldControls({ setup }: { setup: PreparedWorld }) {
         />
       </IfInSessionMode>
 
-      {/* VR: where visitors stand, and the floor they can teleport across. */}
-      <XROrigin position={origin} rotation={[0, setup.spawnYaw, 0]} />
+      {/* VR: where visitors stand (walking and turning move it), and the
+          floor they can teleport across. */}
+      <XROrigin ref={originRef} position={origin} rotation={[0, setup.spawnYaw, 0]} />
       <TeleportTarget onTeleport={(point) => setOrigin(point.clone())}>
         <mesh
           position={[teleportCenter.x, 0.01, teleportCenter.z]}
